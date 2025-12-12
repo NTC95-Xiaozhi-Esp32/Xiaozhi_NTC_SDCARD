@@ -1510,185 +1510,203 @@ void LcdDisplay::periodicUpdateTask() {
                 lv_canvas_fill_bg(canvas_, lv_color_black(), LV_OPA_COVER);
 
                 // ================= UI MUSIC OVERLAY =================
-                Esp32SdMusic* sd_player = get_sd_player();
-                bool sd_playing = sd_player &&
-                                  sd_player->getState() == Esp32SdMusic::PlayerState::Playing;
+				Esp32SdMusic* sd_player = get_sd_player();
+				bool sd_playing = sd_player &&
+								  sd_player->getState() == Esp32SdMusic::PlayerState::Playing;
 
-                DisplaySourceType source = DetectSourceFromInfo();
+				DisplaySourceType source = DetectSourceFromInfo();
 
-                lv_color_t color_accent;
-                const char* icon_symbol;
+				lv_color_t color_accent;
+				const char* icon_symbol;
 
-                switch (source) {
-                    case DisplaySourceType::SD_CARD:
-                        color_accent = lv_color_hex(0x00FFC2);
-                        icon_symbol  = LV_SYMBOL_SD_CARD;
-                        break;
-                    case DisplaySourceType::RADIO:
-                        color_accent = lv_color_hex(0xFF9E40);
-                        icon_symbol  = LV_SYMBOL_VOLUME_MAX;
-                        break;
-                    case DisplaySourceType::ONLINE:
-                        color_accent = lv_color_hex(0x00D9FF);
-                        icon_symbol  = LV_SYMBOL_AUDIO;
-                        break;
-                    case DisplaySourceType::NONE:
-                    default:
-                        color_accent = lv_color_hex(0xFFFFFF);
-                        icon_symbol  = LV_SYMBOL_AUDIO;
-                        break;
-                }
+				switch (source) {
+					case DisplaySourceType::SD_CARD:
+						color_accent = lv_color_hex(0x00FFC2);
+						icon_symbol  = LV_SYMBOL_SD_CARD;
+						break;
+					case DisplaySourceType::RADIO:
+						color_accent = lv_color_hex(0xFF9E40);
+						icon_symbol  = LV_SYMBOL_VOLUME_MAX;
+						break;
+					case DisplaySourceType::ONLINE:
+						color_accent = lv_color_hex(0x00D9FF);
+						icon_symbol  = LV_SYMBOL_AUDIO;
+						break;
+					case DisplaySourceType::NONE:
+					default:
+						color_accent = lv_color_hex(0xFFFFFF);
+						icon_symbol  = LV_SYMBOL_AUDIO;
+						break;
+				}
 
-                if (!(source == DisplaySourceType::NONE && !sd_playing)) {
-                    auto theme      = static_cast<LvglTheme*>(current_theme_);
-                    auto text_font  = theme->text_font()->font();
-                    auto icon_font  = theme->large_icon_font()->font();
+				if (!(source == DisplaySourceType::NONE && !sd_playing)) {
+					auto theme     = static_cast<LvglTheme*>(current_theme_);
+					auto text_font = theme->text_font()->font();
+					// Dùng icon_font nhỏ hơn cho hài hòa với text
+					auto icon_font = theme->icon_font()->font();
 
-                    const int w = canvas_width_;
-                    const int h = canvas_height_;
-                    const int pad_side = (int)(w * 0.04f);
-                    const int pad_top  = (int)(h * 0.05f);
+					const int w        = canvas_width_;
+					const int h        = canvas_height_;
+					const int pad_side = static_cast<int>(w * 0.04f);
+					const int pad_top  = static_cast<int>(h * 0.05f);
 
-                    music_root_ = lv_obj_create(canvas_);
-                    lv_obj_remove_style_all(music_root_);
-                    lv_obj_set_size(music_root_, w, h);
-                    lv_obj_set_style_bg_opa(music_root_, LV_OPA_TRANSP, 0);
+					music_root_ = lv_obj_create(canvas_);
+					lv_obj_remove_style_all(music_root_);
+					lv_obj_set_size(music_root_, w, h);
+					lv_obj_set_style_bg_opa(music_root_, LV_OPA_TRANSP, 0);
 
-                    lv_obj_t* overlay = lv_obj_create(music_root_);
-                    lv_obj_remove_style_all(overlay);
-                    lv_obj_set_size(overlay, w, (int)(h * 0.35f));
-                    lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
-                    lv_obj_set_style_bg_grad_color(overlay, lv_color_black(), 0);
-                    lv_obj_set_style_bg_grad_dir(overlay, LV_GRAD_DIR_VER, 0);
-                    lv_obj_set_style_bg_opa(overlay, 200, 0);
+					lv_obj_t* overlay = lv_obj_create(music_root_);
+					lv_obj_remove_style_all(overlay);
+					lv_obj_set_size(overlay, w, static_cast<int>(h * 0.35f));
+					lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+					lv_obj_set_style_bg_grad_color(overlay, lv_color_black(), 0);
+					lv_obj_set_style_bg_grad_dir(overlay, LV_GRAD_DIR_VER, 0);
+					lv_obj_set_style_bg_opa(overlay, 200, 0);
 
-                    lv_obj_t* icon = lv_label_create(music_root_);
-                    lv_obj_set_style_text_font(icon, icon_font, 0);
-                    lv_obj_set_style_text_color(icon, color_accent, 0);
-                    lv_label_set_text(icon, icon_symbol);
-                    lv_obj_align(icon, LV_ALIGN_TOP_LEFT, pad_side, pad_top);
+					// ---------- ICON ----------
+					lv_obj_t* icon = lv_label_create(music_root_);
+					lv_obj_set_style_text_font(icon, icon_font, 0);
+					lv_obj_set_style_text_color(icon, color_accent, 0);
+					lv_label_set_text(icon, icon_symbol);
+					lv_obj_align(icon, LV_ALIGN_TOP_LEFT, pad_side, pad_top);
 
-                    std::string title_str, sub_str;
-                    bool show_progress = false;
+					// đo kích thước icon thực tế để layout tự thích ứng
+					int icon_width = lv_obj_get_width(icon);
+					int pad_icon   = pad_side / 2;   // khoảng cách icon <-> text
 
-                    if (source == DisplaySourceType::SD_CARD && sd_playing) {
-                        title_str = sd_player->getCurrentTrack();
-                        if (title_str.empty()) title_str = "Unknown Track";
-                        
-                        int bitrate = sd_player->getBitrate();
-                        char buff[32];
-                        snprintf(buff, sizeof(buff), "%d kbps / MP3", bitrate/1000);
-                        sub_str = std::string(buff);
-                        show_progress = true;
-                    } else {
-                        std::string line1, line2;
-                        size_t pos = music_info_.find('\n');
-                        if (pos != std::string::npos) {
-                            line1 = music_info_.substr(0, pos);
-                            line2 = music_info_.substr(pos + 1);
-                        } else {
-                            line1 = music_info_;
-                        }
+					std::string title_str, sub_str;
+					bool show_progress = false;
 
-                        title_str = line1.empty()
-                                    ? (source == DisplaySourceType::ONLINE ? "Music Online" : "FM Radio")
-                                    : line1;
+					if (source == DisplaySourceType::SD_CARD && sd_playing) {
+						title_str = sd_player->getCurrentTrack();
+						if (title_str.empty()) title_str = "Unknown Track";
 
-                        if (source == DisplaySourceType::ONLINE) {
-                            sub_str = !line2.empty() ? line2 : "Đang phát...";
-                        } else if (source == DisplaySourceType::RADIO) {
-                            sub_str = !line2.empty() ? line2 : "Live Broadcast";
-                        }
+						int bitrate = sd_player->getBitrate();
+						char buff[32];
+						snprintf(buff, sizeof(buff), "%d kbps / MP3", bitrate / 1000);
+						sub_str       = std::string(buff);
+						show_progress = true;
+					} else {
+						std::string line1, line2;
+						size_t pos = music_info_.find('\n');
+						if (pos != std::string::npos) {
+							line1 = music_info_.substr(0, pos);
+							line2 = music_info_.substr(pos + 1);
+						} else {
+							line1 = music_info_;
+						}
 
-                        show_progress = false;
-                    }
+						title_str = line1.empty()
+										? (source == DisplaySourceType::ONLINE ? "Music Online" : "FM Radio")
+										: line1;
 
-                    lv_obj_t* title = lv_label_create(music_root_);
-                    lv_obj_set_style_text_font(title, text_font, 0);
-                    lv_obj_set_style_text_color(title, lv_color_white(), 0);
-                    lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
-                    
-                    int icon_width = 30;
-                    int text_width = w - (pad_side + icon_width + pad_side) - pad_side; 
-                    
-                    lv_obj_set_width(title, text_width);
-                    lv_label_set_text(title, title_str.c_str());
-                    
-                    lv_obj_align_to(title, icon, LV_ALIGN_OUT_RIGHT_TOP, pad_side, 0);
-                    music_title_label_ = title;
+						if (source == DisplaySourceType::ONLINE) {
+							sub_str = !line2.empty() ? line2 : "Đang phát...";
+						} else if (source == DisplaySourceType::RADIO) {
+							sub_str = !line2.empty() ? line2 : "Live Broadcast";
+						}
 
-                    lv_obj_t* sub = lv_label_create(music_root_);
-                    lv_obj_set_style_text_font(sub, text_font, 0);
-                    lv_obj_set_style_text_color(sub, lv_color_hex(0xAAAAAA), 0); 
-                    lv_label_set_text(sub, sub_str.c_str());
-                    lv_label_set_long_mode(sub, LV_LABEL_LONG_SCROLL_CIRCULAR);
-                    lv_obj_set_width(sub, canvas_width_ - 40);
-                    lv_obj_align_to(sub, title, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 4);
-                    music_subinfo_label_ = sub;
+						show_progress = false;
+					}
 
-                    if (show_progress) {
-                        int64_t pos_ms = sd_player->getCurrentPositionMs();
-                        int64_t dur_ms = sd_player->getDurationMs();
-                        
-                        lv_obj_t* bar = lv_bar_create(music_root_);
-                        lv_obj_set_size(bar, w - (pad_side * 2), 4);
-                        lv_obj_align_to(bar, sub, LV_ALIGN_OUT_BOTTOM_LEFT, -icon_width - pad_side, 12);
+					// ---------- TITLE ----------
+					lv_obj_t* title = lv_label_create(music_root_);
+					lv_obj_set_style_text_font(title, text_font, 0);
+					lv_obj_set_style_text_color(title, lv_color_white(), 0);
+					lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
 
-                        lv_obj_set_style_bg_color(bar, lv_color_hex(0x303030), LV_PART_MAIN);
-                        lv_obj_set_style_radius(bar, 2, LV_PART_MAIN);
+					// vùng text = màn hình - (lề trái + icon + khoảng cách icon-text + lề phải)
+					int text_width = w - (pad_side + icon_width + pad_icon + pad_side);
+					if (text_width < 0) text_width = 0;
 
-                        lv_obj_set_style_bg_color(bar, color_accent, LV_PART_INDICATOR);
-                        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
-                        lv_obj_set_style_radius(bar, 2, LV_PART_INDICATOR);
-						
-                        lv_bar_set_range(bar, 0, dur_ms);
-                        lv_bar_set_value(bar, pos_ms, LV_ANIM_OFF);
-                        music_bar_ = bar;
+					lv_obj_set_width(title, text_width);
+					lv_label_set_text(title, title_str.c_str());
 
-                        lv_obj_t* t_curr = lv_label_create(music_root_);
-                        lv_obj_set_style_text_font(t_curr, text_font, 0);
-                        lv_obj_set_style_text_color(t_curr, color_accent, 0);
-                        lv_label_set_text(t_curr, sd_player->getCurrentTimeString().c_str());
-                        lv_obj_align_to(t_curr, bar, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 6);
-                        music_time_left_ = t_curr;
+					lv_obj_align_to(title, icon, LV_ALIGN_OUT_RIGHT_TOP, pad_icon, 0);
+					music_title_label_ = title;
 
-                        lv_obj_t* t_dur = lv_label_create(music_root_);
-                        lv_obj_set_style_text_font(t_dur, text_font, 0);
-                        lv_obj_set_style_text_color(t_dur, lv_color_hex(0xAAAAAA), 0);
-                        lv_label_set_text(t_dur, sd_player->getDurationString().c_str());
-                        lv_obj_align_to(t_dur, bar, LV_ALIGN_OUT_BOTTOM_RIGHT, 0, 6);
-                        music_time_remain_ = t_dur;
+					// ---------- SUB INFO ----------
+					lv_obj_t* sub = lv_label_create(music_root_);
+					lv_obj_set_style_text_font(sub, text_font, 0);
+					lv_obj_set_style_text_color(sub, lv_color_hex(0xAAAAAA), 0);
+					lv_label_set_text(sub, sub_str.c_str());
+					lv_label_set_long_mode(sub, LV_LABEL_LONG_SCROLL_CIRCULAR);
+					lv_obj_set_width(sub, text_width);
+					lv_obj_align_to(sub, title, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 4);
+					music_subinfo_label_ = sub;
 
-                        auto tracks = sd_player->listTracks();
-                        std::string cur_path = sd_player->getCurrentTrackPath();
-                        int idx = -1; 
-                        for(size_t i=0; i<tracks.size(); ++i) if(tracks[i].path == cur_path) idx = i;
-                        
-                        std::string next_txt = "End of playlist";
-                        if(idx >= 0 && idx < (int)tracks.size() - 1) next_txt = tracks[idx+1].name;
-                        else if(!tracks.empty()) next_txt = tracks[0].name;
+					// ---------- PROGRESS ----------
+					if (show_progress) {
+						int64_t pos_ms = sd_player->getCurrentPositionMs();
+						int64_t dur_ms = sd_player->getDurationMs();
 
-                        lv_obj_t* next_lbl = lv_label_create(music_root_);
-                        lv_obj_set_style_text_font(next_lbl, text_font, 0);
-                        lv_obj_set_style_text_color(next_lbl, lv_color_hex(0x707070), 0);
-                        
-                        char next_buff[128];
-                        snprintf(next_buff, sizeof(next_buff), "Next: %s", next_txt.c_str());
-                        lv_label_set_text(next_lbl, next_buff);
-                        lv_label_set_long_mode(next_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-                        lv_obj_set_width(next_lbl, w - pad_side * 2);
-                        lv_obj_align_to(next_lbl, t_curr, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 4);
-                        music_next_line_ = next_lbl;
-                    } else {
-                        music_bar_ = nullptr;
-                        music_time_left_ = nullptr;
-                        music_time_remain_ = nullptr;
-                        music_next_line_ = nullptr;
-                        music_time_total_ = nullptr;
-                    }
-                }
+						lv_obj_t* bar = lv_bar_create(music_root_);
+						lv_obj_set_size(bar, w - (pad_side * 2), 4);
+						// đẩy bar sang trái đúng bằng (icon + khoảng cách icon-text)
+						lv_obj_align_to(bar, sub, LV_ALIGN_OUT_BOTTOM_LEFT, -(icon_width + pad_icon), 12);
 
-                lv_obj_invalidate(canvas_);
+						lv_obj_set_style_bg_color(bar, lv_color_hex(0x303030), LV_PART_MAIN);
+						lv_obj_set_style_radius(bar, 2, LV_PART_MAIN);
+
+						lv_obj_set_style_bg_color(bar, color_accent, LV_PART_INDICATOR);
+						lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+						lv_obj_set_style_radius(bar, 2, LV_PART_INDICATOR);
+
+						lv_bar_set_range(bar, 0, dur_ms);
+						lv_bar_set_value(bar, pos_ms, LV_ANIM_OFF);
+						music_bar_ = bar;
+
+						lv_obj_t* t_curr = lv_label_create(music_root_);
+						lv_obj_set_style_text_font(t_curr, text_font, 0);
+						lv_obj_set_style_text_color(t_curr, color_accent, 0);
+						lv_label_set_text(t_curr, sd_player->getCurrentTimeString().c_str());
+						lv_obj_align_to(t_curr, bar, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 6);
+						music_time_left_ = t_curr;
+
+						lv_obj_t* t_dur = lv_label_create(music_root_);
+						lv_obj_set_style_text_font(t_dur, text_font, 0);
+						lv_obj_set_style_text_color(t_dur, lv_color_hex(0xAAAAAA), 0);
+						lv_label_set_text(t_dur, sd_player->getDurationString().c_str());
+						lv_obj_align_to(t_dur, bar, LV_ALIGN_OUT_BOTTOM_RIGHT, 0, 6);
+						music_time_remain_ = t_dur;
+
+						auto        tracks   = sd_player->listTracks();
+						std::string cur_path = sd_player->getCurrentTrackPath();
+						int         idx      = -1;
+						for (size_t i = 0; i < tracks.size(); ++i) {
+							if (tracks[i].path == cur_path) idx = static_cast<int>(i);
+						}
+
+						std::string next_txt = "End of playlist";
+						if (idx >= 0 && idx < (int)tracks.size() - 1)
+							next_txt = tracks[idx + 1].name;
+						else if (!tracks.empty())
+							next_txt = tracks[0].name;
+
+						lv_obj_t* next_lbl = lv_label_create(music_root_);
+						lv_obj_set_style_text_font(next_lbl, text_font, 0);
+						lv_obj_set_style_text_color(next_lbl, lv_color_hex(0x707070), 0);
+
+						char next_buff[128];
+						snprintf(next_buff, sizeof(next_buff), "Next: %s", next_txt.c_str());
+						lv_label_set_text(next_lbl, next_buff);
+						lv_label_set_long_mode(next_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+						lv_obj_set_width(next_lbl, w - pad_side * 2);
+						lv_obj_align_to(next_lbl, t_curr, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 4);
+						music_next_line_ = next_lbl;
+					} else {
+						music_bar_         = nullptr;
+						music_time_left_   = nullptr;
+						music_time_remain_ = nullptr;
+						music_next_line_   = nullptr;
+						music_time_total_  = nullptr;
+					}
+				}
+
+				lv_obj_invalidate(canvas_);
+
+				
+				// ================= UI MUSIC  =================
             }
         }
 
