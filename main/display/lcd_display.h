@@ -101,6 +101,7 @@ protected:
     lv_obj_t* music_time_left_ = nullptr;
     lv_obj_t* music_time_total_ = nullptr;
     lv_obj_t* music_subinfo_label_ = nullptr;
+    lv_obj_t* music_meta_label_ = nullptr;   // dòng metadata chi tiết (artist / album / year / track)
     lv_obj_t* music_time_remain_ = nullptr;
     lv_obj_t* music_next_line_ = nullptr;
 

@@ -1462,6 +1462,7 @@ void LcdDisplay::StopFFT() {
     music_time_total_    = nullptr;
     music_time_remain_   = nullptr;    
     music_subinfo_label_ = nullptr;
+    music_meta_label_    = nullptr;
     music_next_line_     = nullptr;
     
     if (canvas_buffer_ != nullptr) {
@@ -1480,6 +1481,7 @@ void LcdDisplay::StopFFT() {
     if (music_time_total_)    lv_obj_add_flag(music_time_total_,    LV_OBJ_FLAG_HIDDEN);
     if (music_time_remain_)   lv_obj_add_flag(music_time_remain_,   LV_OBJ_FLAG_HIDDEN);
     if (music_subinfo_label_) lv_obj_add_flag(music_subinfo_label_, LV_OBJ_FLAG_HIDDEN);
+    if (music_meta_label_)    lv_obj_add_flag(music_meta_label_,    LV_OBJ_FLAG_HIDDEN);
     if (music_next_line_)     lv_obj_add_flag(music_next_line_,     LV_OBJ_FLAG_HIDDEN);
 
     if (emoji_label_) lv_obj_clear_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
@@ -1509,27 +1511,27 @@ void LcdDisplay::periodicUpdateTask() {
 
                 lv_canvas_fill_bg(canvas_, lv_color_black(), LV_OPA_COVER);
 
-                // ================= UI MUSIC OVERLAY =================
+                // ================= UI MUSIC OVERLAY (UPGRADED) =================
 				Esp32SdMusic* sd_player = get_sd_player();
-				bool sd_playing = sd_player &&
-								  sd_player->getState() == Esp32SdMusic::PlayerState::Playing;
+				bool sd_playing = sd_player && sd_player->getState() == Esp32SdMusic::PlayerState::Playing;
 
 				DisplaySourceType source = DetectSourceFromInfo();
 
 				lv_color_t color_accent;
 				const char* icon_symbol;
 
+				// --- 1. Xác định màu sắc và Icon ---
 				switch (source) {
 					case DisplaySourceType::SD_CARD:
-						color_accent = lv_color_hex(0x00FFC2);
+						color_accent = lv_color_hex(0x00FFC2); // Teal
 						icon_symbol  = LV_SYMBOL_SD_CARD;
 						break;
 					case DisplaySourceType::RADIO:
-						color_accent = lv_color_hex(0xFF9E40);
-						icon_symbol  = LV_SYMBOL_VOLUME_MAX;
+						color_accent = lv_color_hex(0xFF9E40); // Orange
+						icon_symbol  = LV_SYMBOL_VOLUME_MAX; // Hoặc LV_SYMBOL_BROADCAST nếu có
 						break;
 					case DisplaySourceType::ONLINE:
-						color_accent = lv_color_hex(0x00D9FF);
+						color_accent = lv_color_hex(0x00D9FF); // Cyan
 						icon_symbol  = LV_SYMBOL_AUDIO;
 						break;
 					case DisplaySourceType::NONE:
@@ -1539,41 +1541,39 @@ void LcdDisplay::periodicUpdateTask() {
 						break;
 				}
 
+				// Chỉ hiển thị nếu có nguồn phát hoặc đang phát SD
 				if (!(source == DisplaySourceType::NONE && !sd_playing)) {
-					auto theme     = static_cast<LvglTheme*>(current_theme_);
-					auto text_font = theme->text_font()->font();
-					// Dùng icon_font nhỏ hơn cho hài hòa với text
-					auto icon_font = theme->icon_font()->font();
+					auto theme      = static_cast<LvglTheme*>(current_theme_);
+					auto text_font  = theme->text_font()->font();
+					auto icon_font  = theme->icon_font()->font(); // Icon to
 
-					const int w        = canvas_width_;
-					const int h        = canvas_height_;
-					const int pad_side = static_cast<int>(w * 0.04f);
-					const int pad_top  = static_cast<int>(h * 0.05f);
+					// --- 2. Cấu hình Kích thước & Lề (MARGINS) ---
+					const int w = canvas_width_;
+					const int h = canvas_height_;
 
+					// Tùy chỉnh lề tại đây (tính theo % màn hình để scale tốt)
+					const int pad_left   = static_cast<int>(w * 0.05f); // Lề trái 5%
+					const int pad_right  = static_cast<int>(w * 0.05f); // Lề phải 5%
+					const int pad_top    = static_cast<int>(h * 0.05f); // Lề trên 5%
+					const int pad_gap_x  = 12; // Khoảng cách giữa Icon và Text
+					const int pad_gap_y  = 4;  // Khoảng cách giữa các dòng text
+
+					// Tạo Root Container
 					music_root_ = lv_obj_create(canvas_);
 					lv_obj_remove_style_all(music_root_);
 					lv_obj_set_size(music_root_, w, h);
 					lv_obj_set_style_bg_opa(music_root_, LV_OPA_TRANSP, 0);
 
+					// Tạo nền Gradient tối để chữ dễ đọc (chỉ che 40-50% phía trên)
 					lv_obj_t* overlay = lv_obj_create(music_root_);
 					lv_obj_remove_style_all(overlay);
-					lv_obj_set_size(overlay, w, static_cast<int>(h * 0.35f));
+					lv_obj_set_size(overlay, w, static_cast<int>(h * 0.45f)); // Tăng độ phủ lên 45%
 					lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
 					lv_obj_set_style_bg_grad_color(overlay, lv_color_black(), 0);
 					lv_obj_set_style_bg_grad_dir(overlay, LV_GRAD_DIR_VER, 0);
-					lv_obj_set_style_bg_opa(overlay, 200, 0);
+					lv_obj_set_style_bg_opa(overlay, 220, 0); // Đậm hơn chút để nổi bật chữ trắng
 
-					// ---------- ICON ----------
-					lv_obj_t* icon = lv_label_create(music_root_);
-					lv_obj_set_style_text_font(icon, icon_font, 0);
-					lv_obj_set_style_text_color(icon, color_accent, 0);
-					lv_label_set_text(icon, icon_symbol);
-					lv_obj_align(icon, LV_ALIGN_TOP_LEFT, pad_side, pad_top);
-
-					// đo kích thước icon thực tế để layout tự thích ứng
-					int icon_width = lv_obj_get_width(icon);
-					int pad_icon   = pad_side / 2;   // khoảng cách icon <-> text
-
+					// --- 3. Xử lý Dữ liệu hiển thị ---
 					std::string title_str, sub_str;
 					bool show_progress = false;
 
@@ -1587,6 +1587,7 @@ void LcdDisplay::periodicUpdateTask() {
 						sub_str       = std::string(buff);
 						show_progress = true;
 					} else {
+						// Xử lý chuỗi info cho Radio/Online (tách dòng)
 						std::string line1, line2;
 						size_t pos = music_info_.find('\n');
 						if (pos != std::string::npos) {
@@ -1601,112 +1602,233 @@ void LcdDisplay::periodicUpdateTask() {
 										: line1;
 
 						if (source == DisplaySourceType::ONLINE) {
-							sub_str = !line2.empty() ? line2 : "Đang phát...";
+							sub_str = !line2.empty() ? line2 : "Streaming...";
 						} else if (source == DisplaySourceType::RADIO) {
 							sub_str = !line2.empty() ? line2 : "Live Broadcast";
 						}
-
 						show_progress = false;
 					}
 
-					// ---------- TITLE ----------
+					// --- 4. Render UI Elements ---
+
+					// [ICON]
+					lv_obj_t* icon = lv_label_create(music_root_);
+					lv_obj_set_style_text_font(icon, icon_font, 0);
+					lv_obj_set_style_text_color(icon, color_accent, 0);
+					lv_label_set_text(icon, icon_symbol);
+					// Căn Icon: Góc trên trái
+					lv_obj_align(icon, LV_ALIGN_TOP_LEFT, pad_left, pad_top);
+
+					// Lấy kích thước icon thực tế để tính toán vùng text
+					lv_obj_update_layout(icon); // Cập nhật layout để lấy size chính xác
+					int icon_w = lv_obj_get_width(icon);
+
+					// Tính toán chiều rộng tối đa cho Text (Màn hình - Lề trái - Icon - Khoảng cách - Lề phải)
+					int max_text_width = w - (pad_left + icon_w + pad_gap_x + pad_right);
+					if (max_text_width < 0) max_text_width = 0;
+
+					// Chiều rộng cho các phần tử full dòng (như Progress Bar)
+					int content_width = w - (pad_left + pad_right);
+
+					// [TITLE]
 					lv_obj_t* title = lv_label_create(music_root_);
 					lv_obj_set_style_text_font(title, text_font, 0);
 					lv_obj_set_style_text_color(title, lv_color_white(), 0);
-					lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR);
-
-					// vùng text = màn hình - (lề trái + icon + khoảng cách icon-text + lề phải)
-					int text_width = w - (pad_side + icon_width + pad_icon + pad_side);
-					if (text_width < 0) text_width = 0;
-
-					lv_obj_set_width(title, text_width);
+					lv_label_set_long_mode(title, LV_LABEL_LONG_SCROLL_CIRCULAR); // Chạy chữ nếu dài
+					lv_obj_set_width(title, max_text_width);
 					lv_label_set_text(title, title_str.c_str());
-
-					lv_obj_align_to(title, icon, LV_ALIGN_OUT_RIGHT_TOP, pad_icon, 0);
+					// Căn Title: Bên phải Icon, mép trên bằng nhau
+					lv_obj_align_to(title, icon, LV_ALIGN_OUT_RIGHT_TOP, pad_gap_x, 0);
 					music_title_label_ = title;
 
-					// ---------- SUB INFO ----------
+					// [SUB INFO] (Bitrate hoặc trạng thái)
 					lv_obj_t* sub = lv_label_create(music_root_);
 					lv_obj_set_style_text_font(sub, text_font, 0);
-					lv_obj_set_style_text_color(sub, lv_color_hex(0xAAAAAA), 0);
-					lv_label_set_text(sub, sub_str.c_str());
+					lv_obj_set_style_text_color(sub, lv_color_hex(0xBBBBBB), 0); // Màu xám sáng
 					lv_label_set_long_mode(sub, LV_LABEL_LONG_SCROLL_CIRCULAR);
-					lv_obj_set_width(sub, text_width);
-					lv_obj_align_to(sub, title, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 4);
+					lv_obj_set_width(sub, max_text_width);
+					lv_label_set_text(sub, sub_str.c_str());
+					// Căn Sub: Bên phải Icon, nằm dưới Title
+					lv_obj_align_to(sub, title, LV_ALIGN_OUT_BOTTOM_LEFT, 0, pad_gap_y);
 					music_subinfo_label_ = sub;
 
-					// ---------- PROGRESS ----------
+					// --- 5. UI Riêng cho SD Card (Metadata, Progress, Next) ---
 					if (show_progress) {
 						int64_t pos_ms = sd_player->getCurrentPositionMs();
 						int64_t dur_ms = sd_player->getDurationMs();
+						
+						// Vì Metadata/Progress thường nằm thấp hơn icon, ta chọn vị trí neo
+						// Nếu icon cao hơn text -> neo theo icon. Nếu text nhiều dòng cao hơn -> neo theo text.
+						// Ở đây đơn giản ta neo vào vị trí dưới cùng của khối header (icon/text) + padding lớn
+						int header_height = (lv_obj_get_height(icon) > (lv_obj_get_height(title) + lv_obj_get_height(sub))) 
+											? lv_obj_get_height(icon) 
+											: (lv_obj_get_height(title) + lv_obj_get_height(sub) + pad_gap_y);
+						
+						int y_start_body = pad_top + header_height + 15; // Cách header 15px
 
+						// --- Metadata (Artist - Album - Year) ---
+						auto tracks = sd_player->listTracks();
+						std::string cur_path = sd_player->getCurrentTrackPath();
+						int idx = -1;
+						for (size_t i = 0; i < tracks.size(); ++i) {
+							if (tracks[i].path == cur_path) {
+								idx = static_cast<int>(i);
+								break;
+							}
+						}
+
+						if (idx >= 0 && idx < (int)tracks.size()) {
+							const auto& info = tracks[idx];
+							std::string meta_txt;
+							
+							// Xây dựng chuỗi metadata thông minh hơn
+							if (!info.artist.empty()) meta_txt += info.artist;
+							else meta_txt += "Unknown Artist";
+
+							if (!info.album.empty())  meta_txt += " • " + info.album;
+							
+							// Hiển thị Track number
+							char track_buf[32];
+							snprintf(track_buf, sizeof(track_buf), " (Trk %d/%d)", idx + 1, (int)tracks.size());
+							meta_txt += track_buf;
+
+							lv_obj_t* meta_lbl = lv_label_create(music_root_);
+							lv_obj_set_style_text_font(meta_lbl, text_font, 0);
+							lv_obj_set_style_text_color(meta_lbl, lv_color_hex(0x999999), 0); // Xám đậm hơn chút
+							lv_label_set_long_mode(meta_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+							lv_obj_set_width(meta_lbl, content_width); // Full width
+							lv_label_set_text(meta_lbl, meta_txt.c_str());
+
+							// Căn vị trí: Bám lề trái, dưới header
+							lv_obj_align(meta_lbl, LV_ALIGN_TOP_LEFT, pad_left, y_start_body);
+							
+							music_meta_label_ = meta_lbl;							
+						} else {
+							 // Nếu không có meta, tạo một obj ảo hoặc set neo về vị trí y_start_body
+							 music_meta_label_ = nullptr;
+							 // Hack: dịch anchor xuống thủ công nếu ko có metadata
+							 lv_obj_set_y(sub, lv_obj_get_y(sub)); // dummy layout update
+						}
+
+						// --- Progress Bar ---
 						lv_obj_t* bar = lv_bar_create(music_root_);
-						lv_obj_set_size(bar, w - (pad_side * 2), 4);
-						// đẩy bar sang trái đúng bằng (icon + khoảng cách icon-text)
-						lv_obj_align_to(bar, sub, LV_ALIGN_OUT_BOTTOM_LEFT, -(icon_width + pad_icon), 12);
+						lv_obj_set_size(bar, content_width, 6); // Dày 6px cho dễ nhìn
+						
+						// Căn Bar: Nếu có Meta thì nằm dưới Meta, nếu không thì nằm dưới vị trí tính toán
+						if (music_meta_label_) {
+							lv_obj_align_to(bar, music_meta_label_, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 10);
+						} else {
+							lv_obj_align(bar, LV_ALIGN_TOP_LEFT, pad_left, y_start_body + 10);
+						}
 
-						lv_obj_set_style_bg_color(bar, lv_color_hex(0x303030), LV_PART_MAIN);
-						lv_obj_set_style_radius(bar, 2, LV_PART_MAIN);
+						lv_obj_set_style_bg_color(bar, lv_color_hex(0x404040), LV_PART_MAIN);
+						lv_obj_set_style_radius(bar, 3, LV_PART_MAIN);
 
 						lv_obj_set_style_bg_color(bar, color_accent, LV_PART_INDICATOR);
-						lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
-						lv_obj_set_style_radius(bar, 2, LV_PART_INDICATOR);
+						lv_obj_set_style_radius(bar, 3, LV_PART_INDICATOR);
 
 						lv_bar_set_range(bar, 0, dur_ms);
 						lv_bar_set_value(bar, pos_ms, LV_ANIM_OFF);
 						music_bar_ = bar;
 
+						// --- Time (Left & Right) ---
 						lv_obj_t* t_curr = lv_label_create(music_root_);
 						lv_obj_set_style_text_font(t_curr, text_font, 0);
-						lv_obj_set_style_text_color(t_curr, color_accent, 0);
+						lv_obj_set_style_text_color(t_curr, color_accent, 0); // Màu thời gian hiện tại theo theme
 						lv_label_set_text(t_curr, sd_player->getCurrentTimeString().c_str());
-						lv_obj_align_to(t_curr, bar, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 6);
+						lv_obj_align_to(t_curr, bar, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 8);
 						music_time_left_ = t_curr;
 
 						lv_obj_t* t_dur = lv_label_create(music_root_);
 						lv_obj_set_style_text_font(t_dur, text_font, 0);
 						lv_obj_set_style_text_color(t_dur, lv_color_hex(0xAAAAAA), 0);
 						lv_label_set_text(t_dur, sd_player->getDurationString().c_str());
-						lv_obj_align_to(t_dur, bar, LV_ALIGN_OUT_BOTTOM_RIGHT, 0, 6);
+						lv_obj_align_to(t_dur, bar, LV_ALIGN_OUT_BOTTOM_RIGHT, 0, 8);
 						music_time_remain_ = t_dur;
 
-						auto        tracks   = sd_player->listTracks();
-						std::string cur_path = sd_player->getCurrentTrackPath();
-						int         idx      = -1;
-						for (size_t i = 0; i < tracks.size(); ++i) {
-							if (tracks[i].path == cur_path) idx = static_cast<int>(i);
+						// --- Next Track Info (Footer - redesigned, không bị che) ---
+						std::string next_txt = "End of playlist";
+						if (idx >= 0 && idx < (int)tracks.size() - 1)      next_txt = tracks[idx + 1].name;
+						else if (!tracks.empty())                          next_txt = tracks[0].name;
+
+						// Safe margin đáy (nếu có status bar/nav bar thì tăng lên)
+						const int pad_bottom = static_cast<int>(h * 0.06f);   // 6% chiều cao
+						const int footer_gap = 10;
+						const int inner_pad  = 8;
+
+						// Container footer (full width theo content_width)
+						lv_obj_t* next_cont = lv_obj_create(music_root_);
+						lv_obj_remove_style_all(next_cont);
+						lv_obj_set_width(next_cont, content_width);
+						lv_obj_set_height(next_cont, LV_SIZE_CONTENT);
+
+						lv_obj_set_style_bg_color(next_cont, lv_color_black(), 0);
+						lv_obj_set_style_bg_opa(next_cont, 170, 0);
+						lv_obj_set_style_radius(next_cont, 12, 0);
+						lv_obj_set_style_pad_left(next_cont, inner_pad, 0);
+						lv_obj_set_style_pad_right(next_cont, inner_pad, 0);
+						lv_obj_set_style_pad_top(next_cont, 6, 0);
+						lv_obj_set_style_pad_bottom(next_cont, 6, 0);
+						lv_obj_set_style_border_width(next_cont, 0, 0);
+						lv_obj_set_style_outline_width(next_cont, 0, 0);
+
+						// Dùng flex để bố cục “tag NEXT” + “tên bài”
+						lv_obj_set_layout(next_cont, LV_LAYOUT_FLEX);
+						lv_obj_set_flex_flow(next_cont, LV_FLEX_FLOW_ROW);
+						lv_obj_set_flex_align(next_cont,
+											  LV_FLEX_ALIGN_START,   // main axis
+											  LV_FLEX_ALIGN_CENTER,  // cross axis
+											  LV_FLEX_ALIGN_CENTER); // track align
+						lv_obj_set_style_pad_gap(next_cont, 8, 0);
+
+						// Tag "NEXT"
+						lv_obj_t* next_tag = lv_label_create(next_cont);
+						lv_obj_set_style_text_font(next_tag, text_font, 0);
+						lv_obj_set_style_text_color(next_tag, color_accent, 0);
+						lv_label_set_text(next_tag, "Tiếp theo:");
+
+						// Label tên bài (scroll nếu dài)
+						lv_obj_t* next_lbl = lv_label_create(next_cont);
+						lv_obj_set_style_text_font(next_lbl, text_font, 0);
+						lv_obj_set_style_text_color(next_lbl, lv_color_hex(0xEEEEEE), 0);
+						lv_label_set_long_mode(next_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+
+						// Tính width còn lại cho label để không tràn/không bị che
+						lv_obj_update_layout(next_tag);
+						int tag_w   = lv_obj_get_width(next_tag);
+						int lbl_w   = content_width - (inner_pad * 2 + tag_w + 8);
+						if (lbl_w < 40) lbl_w = 40;
+						lv_obj_set_width(next_lbl, lbl_w);
+						lv_label_set_text(next_lbl, next_txt.c_str());
+
+						music_next_line_ = next_lbl;
+
+						// Ưu tiên đặt footer ngay dưới cụm time (hợp lý hơn so với dính đáy màn hình)
+						lv_obj_align_to(next_cont, t_curr, LV_ALIGN_OUT_BOTTOM_LEFT, 0, footer_gap);
+
+						// Clamp để không vượt đáy màn hình (tránh bị che bởi UI đáy hoặc ra ngoài)
+						lv_obj_update_layout(next_cont);
+						int max_y = h - pad_bottom - lv_obj_get_height(next_cont);
+						if (lv_obj_get_y(next_cont) > max_y) {
+							lv_obj_set_y(next_cont, max_y);
 						}
 
-						std::string next_txt = "End of playlist";
-						if (idx >= 0 && idx < (int)tracks.size() - 1)
-							next_txt = tracks[idx + 1].name;
-						else if (!tracks.empty())
-							next_txt = tracks[0].name;
-
-						lv_obj_t* next_lbl = lv_label_create(music_root_);
-						lv_obj_set_style_text_font(next_lbl, text_font, 0);
-						lv_obj_set_style_text_color(next_lbl, lv_color_hex(0x707070), 0);
-
-						char next_buff[128];
-						snprintf(next_buff, sizeof(next_buff), "Next: %s", next_txt.c_str());
-						lv_label_set_text(next_lbl, next_buff);
-						lv_label_set_long_mode(next_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-						lv_obj_set_width(next_lbl, w - pad_side * 2);
-						lv_obj_align_to(next_lbl, t_curr, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 4);
-						music_next_line_ = next_lbl;
+						// Đảm bảo luôn nổi trên cùng nếu phía dưới còn vẽ/đè UI khác
+						lv_obj_move_foreground(next_cont);
 					} else {
+						// Reset pointers nếu không phải SD
 						music_bar_         = nullptr;
 						music_time_left_   = nullptr;
 						music_time_remain_ = nullptr;
-						music_next_line_   = nullptr;
 						music_time_total_  = nullptr;
+						music_meta_label_  = nullptr;
+						music_next_line_   = nullptr;
 					}
 				}
 
 				lv_obj_invalidate(canvas_);
 
-				
-				// ================= UI MUSIC  =================
+				// ================= END UI MUSIC =================
             }
         }
 
@@ -1806,26 +1928,80 @@ void LcdDisplay::periodicUpdateTask() {
                     lv_label_set_long_mode(music_subinfo_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
                     lv_obj_set_width(music_subinfo_label_, canvas_width_ - 40);
                 }
-				
-                if (music_next_line_ && lv_obj_is_valid(music_next_line_)) {
+
+                // Metadata + bài kế tiếp: dùng chung 1 lần listTracks()
+                if ((music_meta_label_ && lv_obj_is_valid(music_meta_label_)) ||
+                    (music_next_line_  && lv_obj_is_valid(music_next_line_))) {
+
                     auto list = sd->listTracks();
                     std::string cur_path = sd->getCurrentTrackPath();
-                    int cur = 0;
-                    for (int i = 0; i < (int)list.size(); i++) {
+                    int  cur = 0;
+                    bool found = false;
+
+                    for (int i = 0; i < (int)list.size(); ++i) {
                         if (list[i].path == cur_path) {
-                            cur = i;
+                            cur   = i;
+                            found = true;
                             break;
                         }
                     }
 
-                    int total = list.size();
-                    int next = (cur + 1) % (total > 0 ? total : 1);
+                    int total = (int)list.size();
 
-                    std::string next_title =
-                        (total > 0 && next < total) ? list[next].name : "Không có bài kế tiếp";
+                    // Cập nhật metadata
+                    if (music_meta_label_ && lv_obj_is_valid(music_meta_label_) &&
+                        found && cur < total) {
 
-                    std::string tip = "Tiếp theo: " + next_title;
-                    lv_label_set_text(music_next_line_, tip.c_str());
+                        const auto& info = list[cur];
+
+                        std::string artist   = info.artist;
+                        std::string album    = info.album;
+                        std::string year     = info.year;
+                        int         track_no = info.track_number;
+
+                        if (artist.empty()) artist = "Unknown Artist";
+                        if (album.empty())  album  = "Unknown Album";
+
+                        std::string meta_txt;
+                        if (!artist.empty()) meta_txt += artist;
+                        if (!album.empty()) {
+                            if (!meta_txt.empty()) meta_txt += " • ";
+                            meta_txt += album;
+                        }
+                        if (!year.empty()) {
+                            if (!meta_txt.empty()) meta_txt += " • ";
+                            meta_txt += year;
+                        }
+
+                        if (track_no > 0 || total > 0) {
+                            char track_buf[32];
+                            int track_display = track_no > 0 ? track_no : (cur + 1);
+                            snprintf(track_buf,
+                                     sizeof(track_buf),
+                                     " • Track %d/%d",
+                                     track_display,
+                                     total > 0 ? total : 1);
+                            meta_txt += track_buf;
+                        }
+
+                        lv_label_set_text(music_meta_label_, meta_txt.c_str());
+                        lv_label_set_long_mode(music_meta_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+                        lv_obj_set_width(music_meta_label_, canvas_width_ - 40);
+                    }
+
+                    // Cập nhật "Tiếp theo"
+                    if (music_next_line_ && lv_obj_is_valid(music_next_line_)) {
+                        int next = 0;
+                        if (total > 0) {
+                            next = (found ? (cur + 1) % total : 0);
+                        }
+
+                        std::string next_title =
+                            (total > 0 && next < total) ? list[next].name : "Không có bài kế tiếp";
+
+                        std::string tip = next_title;
+                        lv_label_set_text(music_next_line_, tip.c_str());
+                    }
                 }
             }		
 			
