@@ -114,9 +114,12 @@ endchoice
 
 choice BOARD_TYPE
     prompt "Board Type"
-    default BOARD_TYPE_SPOTPEAR_ESP32_S3_1_54_MUMA
+    default BOARD_TYPE_Freenove_ESP32S3_DISPLAY_2_8_LCD
     help
         Board type. 开发板类型
+    config BOARD_TYPE_Freenove_ESP32S3_DISPLAY_2_8_LCD
+        bool "Freenove ESP32S3 Display 2.8 LCD"
+        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_BREAD_COMPACT_WIFI
         bool "Bread Compact WiFi (面包板)"
         depends on IDF_TARGET_ESP32S3

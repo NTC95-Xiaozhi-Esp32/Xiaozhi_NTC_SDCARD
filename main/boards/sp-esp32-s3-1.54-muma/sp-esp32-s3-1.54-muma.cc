@@ -144,125 +144,129 @@ private:
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
     }
 
-    // Tích hợp gesture: swipe ngang (volume), swipe dọc (brightness), tap ngắn (toggle chat như cũ)
-    static void touchpad_timer_callback(void* arg) {
-        auto& board = (Spotpear_esp32_s3_lcd_1_54&)Board::GetInstance();
-        auto touchpad = board.GetTouchpad();
+	// Tích hợp gesture: vuốt ngang (volume), vuốt dọc (độ sáng), chạm ngắn (toggle chat như cũ)
+	static void touchpad_timer_callback(void* arg) {
+		auto& board = (Spotpear_esp32_s3_lcd_1_54&)Board::GetInstance();
+		auto touchpad = board.GetTouchpad();
 
-        static bool was_touched = false;
-        static int64_t touch_start_time_ms = 0;
-        static int16_t touch_start_x = -1;
-        static int16_t touch_start_y = -1;
-        static bool is_swiping = false;
-        static int current_brightness = 100; // Theo kiểu FT6x36, track riêng brightness
-        const int64_t TOUCH_THRESHOLD_MS = 500;  // 触摸时长阈值，超过500ms视为长按
-        const int64_t SWIPE_MAX_DURATION_MS = 1000; // tối đa 1s cho gesture swipe
-        const int16_t SWIPE_THRESHOLD_PX = 50;
+		static bool     was_touched         = false;
+		static int64_t  touch_start_time_ms = 0;
+		static int16_t  touch_start_x       = -1;
+		static int16_t  touch_start_y       = -1;
+		static bool     is_swiping          = false;
+		static int      current_brightness  = 100;
 
-        touchpad->UpdateTouchPoint();
-        auto touch_point = touchpad->GetTouchPoint();
+		const int64_t TOUCH_THRESHOLD_MS     = 500;
+		const int64_t SWIPE_MAX_DURATION_MS  = 1000;
+		const int16_t SWIPE_THRESHOLD_PX     = 50;
 
-        bool is_pressed = (touch_point.num > 0);
-        int16_t current_x = touch_point.x;
-        int16_t current_y = touch_point.y;
+		touchpad->UpdateTouchPoint();
+		auto touch_point = touchpad->GetTouchPoint();
 
-        int64_t now_ms = esp_timer_get_time() / 1000;
+		bool    is_pressed = (touch_point.num > 0);
+		int16_t current_x  = touch_point.x;
+		int16_t current_y  = touch_point.y;
 
-        // 检测触摸开始
-        if (is_pressed && !was_touched) {
-            was_touched = true;
-            touch_start_time_ms = now_ms;
-            touch_start_x = current_x;
-            touch_start_y = current_y;
-            is_swiping = false;
-        }
-        // Đang giữ tay trên màn: kiểm tra swipe nếu chưa gán là swipe
-        else if (is_pressed && was_touched && !is_swiping &&
-                 touch_start_x >= 0 && touch_start_y >= 0 &&
-                 current_x >= 0 && current_y >= 0) {
+		int64_t now_ms = esp_timer_get_time() / 1000;
 
-            int16_t dx = current_x - touch_start_x;
-            int16_t dy = current_y - touch_start_y;
-            int16_t adx = dx >= 0 ? dx : -dx;
-            int16_t ady = dy >= 0 ? dy : -dy;
-            int64_t duration_ms = now_ms - touch_start_time_ms;
+		// 🟢 Bắt đầu chạm
+		if (is_pressed && !was_touched) {
+			was_touched         = true;
+			touch_start_time_ms = now_ms;
+			touch_start_x       = current_x;
+			touch_start_y       = current_y;
+			is_swiping          = false;
+		}
 
-            if (duration_ms < SWIPE_MAX_DURATION_MS) {
-                auto& codec = *board.GetAudioCodec();
-                auto display = board.GetDisplay();
-                auto backlight = board.GetBacklight();
+		// 🟡 Đang giữ tay: kiểm tra vuốt nếu chưa gán là swipe
+		else if (is_pressed && was_touched && !is_swiping &&
+				 touch_start_x >= 0 && touch_start_y >= 0 &&
+				 current_x    >= 0 && current_y    >= 0) {
 
-                // Swipe ngang: điều chỉnh volume
-                if (adx > SWIPE_THRESHOLD_PX && adx > (ady * 3 / 2)) {
-                    is_swiping = true;
+			int16_t dx = current_x - touch_start_x;
+			int16_t dy = current_y - touch_start_y;
+			int16_t adx = dx >= 0 ? dx : -dx;
+			int16_t ady = dy >= 0 ? dy : -dy;
+			int64_t duration_ms = now_ms - touch_start_time_ms;
 
-                    int current_volume = codec.output_volume();
-                    int new_volume = current_volume;
+			if (duration_ms < SWIPE_MAX_DURATION_MS) {
+				auto& codec     = *board.GetAudioCodec();
+				auto  display   = board.GetDisplay();
+				auto  backlight = board.GetBacklight();
 
-                    if (dx > 0) {
-                        // Swipe phải: tăng volume
-                        new_volume = current_volume + 10;
-                        if (new_volume > 100) new_volume = 100;
-                        ESP_LOGI(TAG, "👉 Swipe RIGHT - Volume: %d → %d", current_volume, new_volume);
-                    } else {
-                        // Swipe trái: giảm volume
-                        new_volume = current_volume - 10;
-                        if (new_volume < 0) new_volume = 0;
-                        ESP_LOGI(TAG, "👈 Swipe LEFT - Volume: %d → %d", current_volume, new_volume);
-                    }
+				// ✅ Vuốt ngang: điều chỉnh âm lượng
+				if (adx > SWIPE_THRESHOLD_PX && adx > (ady * 3 / 2)) {
+					is_swiping = true;
 
-                    codec.SetOutputVolume(new_volume);
-                    if (display) {
-                        display->ShowNotification("Âm thanh: " + std::to_string(new_volume));
-                    }
-                }
-                // Swipe dọc: điều chỉnh độ sáng màn hình
-                else if (ady > SWIPE_THRESHOLD_PX && ady > (adx * 3 / 2)) {
-                    is_swiping = true;
+					int current_volume = codec.output_volume();
+					int new_volume = current_volume;
 
-                    int new_brightness = current_brightness;
-                    if (dy < 0) {
-                        // Swipe lên: tăng sáng
-                        new_brightness = current_brightness + 10;
-                        if (new_brightness > 100) new_brightness = 100;
-                        ESP_LOGI(TAG, "👆 Swipe UP - Brightness: %d → %d", current_brightness, new_brightness);
-                    } else {
-                        // Swipe xuống: giảm sáng
-                        new_brightness = current_brightness - 10;
-                        if (new_brightness < 10) new_brightness = 10;  // Min 10% để còn nhìn thấy
-                        ESP_LOGI(TAG, "👇 Swipe DOWN - Brightness: %d → %d", current_brightness, new_brightness);
-                    }
+					if (dx > 0) {
+						// Vuốt sang phải → tăng volume
+						new_volume = current_volume + 10;
+						if (new_volume > 100) new_volume = 100;
+						ESP_LOGI(TAG, "➡️ Vuốt PHẢI - Âm lượng: %d → %d", current_volume, new_volume);
+					} else {
+						// Vuốt sang trái → giảm volume
+						new_volume = current_volume - 10;
+						if (new_volume < 0) new_volume = 0;
+						ESP_LOGI(TAG, "⬅️ Vuốt TRÁI - Âm lượng: %d → %d", current_volume, new_volume);
+					}
 
-                    backlight->SetBrightness(new_brightness);
-                    current_brightness = new_brightness;
-                    if (display) {
-                        display->ShowNotification("Độ sáng: " + std::to_string(new_brightness));
-                    }
-                }
-            }
-        }
-        // 检测触摸释放
-        else if (!is_pressed && was_touched) {
-            was_touched = false;
-            int64_t touch_duration_ms = now_ms - touch_start_time_ms;
+					codec.SetOutputVolume(new_volume);
+					if (display) {
+						display->ShowNotification("Âm thanh: " + std::to_string(new_volume));
+					}
+				}
 
-            // Nếu không phải swipe, xử lý như tap ngắn cũ (toggle chat + reset wifi khi đang setup)
-            if (!is_swiping && touch_duration_ms < TOUCH_THRESHOLD_MS) {
-                auto& app = Application::GetInstance();
-                if (app.GetDeviceState() == kDeviceStateStarting &&
-                    !WifiStation::GetInstance().IsConnected()) {
-                    board.ResetWifiConfiguration();
-                }
-                app.ToggleChatState();
-            } else if (is_swiping) {
-                ESP_LOGI(TAG, "Swipe completed, no tap action");
-            }
+				// ✅ Vuốt dọc: điều chỉnh độ sáng
+				else if (ady > SWIPE_THRESHOLD_PX && ady > (adx * 3 / 2)) {
+					is_swiping = true;
 
-            is_swiping = false;
-            touch_start_x = -1;
-            touch_start_y = -1;
-        }
-    }
+					int new_brightness = current_brightness;
+					if (dy < 0) {
+						// Vuốt lên → tăng sáng
+						new_brightness = current_brightness + 10;
+						if (new_brightness > 100) new_brightness = 100;
+						ESP_LOGI(TAG, "🔼 Vuốt LÊN - Độ sáng: %d → %d", current_brightness, new_brightness);
+					} else {
+						// Vuốt xuống → giảm sáng
+						new_brightness = current_brightness - 10;
+						if (new_brightness < 10) new_brightness = 10;
+						ESP_LOGI(TAG, "🔽 Vuốt XUỐNG - Độ sáng: %d → %d", current_brightness, new_brightness);
+					}
+
+					backlight->SetBrightness(new_brightness);
+					current_brightness = new_brightness;
+
+					if (display) {
+						display->ShowNotification("Độ sáng: " + std::to_string(new_brightness));
+					}
+				}
+			}
+		}
+
+		// 🔴 Thả tay ra khỏi màn hình
+		else if (!is_pressed && was_touched) {
+			was_touched = false;
+			int64_t touch_duration_ms = now_ms - touch_start_time_ms;
+
+			if (!is_swiping && touch_duration_ms < TOUCH_THRESHOLD_MS) {
+				auto& app = Application::GetInstance();
+				if (app.GetDeviceState() == kDeviceStateStarting &&
+					!WifiStation::GetInstance().IsConnected()) {
+					board.ResetWifiConfiguration();
+				}
+				app.ToggleChatState();
+			} else if (is_swiping) {
+				ESP_LOGI(TAG, "Đã vuốt xong, không xử lý tap.");
+			}
+
+			is_swiping    = false;
+			touch_start_x = -1;
+			touch_start_y = -1;
+		}
+	}
 
     void InitializeCst816DTouchPad() {
         ESP_LOGI(TAG, "Init Cst816D");
