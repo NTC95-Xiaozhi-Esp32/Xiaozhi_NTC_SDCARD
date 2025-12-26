@@ -31,7 +31,7 @@
 // ============================================================
 
 static Esp32SdMusic* get_sd_player() {
-    return Application::GetInstance().GetSdMusic();
+    return static_cast<Esp32SdMusic*>(Board::GetInstance().GetSdMusic());
 }
 
 // ---------- UTILITY: Convert ms → mm:ss (hoặc hh:mm:ss) ----------
@@ -1391,6 +1391,20 @@ void LcdDisplay::SetTheme(Theme* theme) {
     lv_obj_set_style_bg_color(low_battery_popup_, lvgl_theme->low_battery_color(), 0);
 
     Display::SetTheme(lvgl_theme);
+}
+
+void LcdDisplay::SetHideSubtitle(bool hide) {
+    DisplayLockGuard lock(this);
+    hide_subtitle_ = hide;
+    
+    // Immediately update UI visibility based on the setting
+    if (bottom_bar_ != nullptr) {
+        if (hide) {
+            lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 void LcdDisplay::StartFFT() {

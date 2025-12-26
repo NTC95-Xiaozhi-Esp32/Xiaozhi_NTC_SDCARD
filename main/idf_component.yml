@@ -22,7 +22,7 @@ dependencies:
     git: https://github.com/NTC95-Xiaozhi-Esp32/NTC_esp-wifi-connect.git
     version: "main"
   78/esp-opus-encoder: ~2.4.1
-  78/esp-ml307: ~3.5.1
+  78/esp-ml307: ~3.5.3
   78/xiaozhi-fonts: ~1.5.5
   espressif/led_strip: ~3.0.1
   espressif/esp_codec_dev: ~1.5
@@ -58,7 +58,7 @@ dependencies:
   espressif/esp_new_jpeg: ^0.6.1
   espressif/esp_audio_codec: ^2.3.0
   espressif/qrcode: ^0.1.0~2
-  
+
   # SenseCAP Watcher Board
   wvirgil123/sscma_client:
     version: 1.0.2
@@ -111,7 +111,7 @@ dependencies:
     
   chmorgan/esp-libhelix-mp3:
     version: "*"
-
+  
   ## Required IDF version
   idf:
     version: '>=5.4.0'

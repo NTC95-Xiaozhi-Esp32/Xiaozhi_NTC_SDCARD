@@ -48,27 +48,20 @@ SdMount& SdMount::GetInstance() {
 //  - Chỉ ghi đè những key tồn tại, phần còn lại giữ default
 // --------------------------------------------------------
 esp_err_t SdMount::LoadConfigFromNvs() {
-    
-    sd_mode_ = 0;          // 0 = 1-bit, 1 = 4-bit, 2 = SPI
-    sd_clk_  = -1;
-    sd_cmd_  = -1;
-    sd_d0_   = -1;
-    sd_d1_   = -1;
-    sd_d2_   = -1;
-    sd_d3_   = -1;
-
-    spi_sck_  = -1;
-    spi_miso_ = -1;
-    spi_mosi_ = -1;
-    spi_cs_   = -1;
+    // Keep current in-memory defaults as baseline; only override keys that exist in NVS.
+    // This keeps sd_mount.h and runtime behavior consistent when NVS has no SD config yet.
 
     nvs_handle_t nvs;
     esp_err_t err = nvs_open("wifi", NVS_READONLY, &nvs);
     if (err != ESP_OK) {
         ESP_LOGI(TAG,
-                 "No SD config in NVS, using defaults: mode=%d CLK=%d CMD=%d D0=%d D3=%d",
-                 sd_mode_, sd_clk_, sd_cmd_, sd_d0_, sd_d3_);
-        return err;
+                 "No SD config in NVS, using defaults: mode=%d "
+                 "SDMMC(CLK=%d CMD=%d D0=%d D1=%d D2=%d D3=%d) "
+                 "SPI(SCK=%d MISO=%d MOSI=%d CS=%d)",
+                 sd_mode_,
+                 sd_clk_, sd_cmd_, sd_d0_, sd_d1_, sd_d2_, sd_d3_,
+                 spi_sck_, spi_miso_, spi_mosi_, spi_cs_);
+        return ESP_OK;
     }
 
     int32_t v = 0;
@@ -87,6 +80,12 @@ esp_err_t SdMount::LoadConfigFromNvs() {
     if (nvs_get_i32(nvs, "spi_cs",   &v) == ESP_OK) spi_cs_   = v;
 
     nvs_close(nvs);
+
+    // Sanitize mode
+    if (sd_mode_ < 0 || sd_mode_ > 2) {
+        ESP_LOGW(TAG, "Invalid sd_mode=%d in NVS, fallback to 0 (SDMMC 1-bit)", sd_mode_);
+        sd_mode_ = 0;
+    }
 
     ESP_LOGI(TAG,
              "SD config from NVS: mode=%d "

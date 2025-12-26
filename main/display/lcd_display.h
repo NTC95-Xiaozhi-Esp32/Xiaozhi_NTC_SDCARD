@@ -42,6 +42,7 @@ protected:
     lv_obj_t* content_ = nullptr;
     lv_obj_t* container_ = nullptr;
     lv_obj_t* side_bar_ = nullptr;
+	lv_obj_t* bottom_bar_ = nullptr;
     lv_obj_t* preview_image_ = nullptr;
     lv_obj_t* emoji_label_ = nullptr;
     lv_obj_t* emoji_image_ = nullptr;
@@ -52,6 +53,7 @@ protected:
     std::unique_ptr<LvglImage> preview_image_cached_ = nullptr;
     std::string ip_address_;
     std::string music_info_;
+	bool hide_subtitle_ = false;  // Control whether to hide chat messages/subtitles
 
     void InitializeLcdThemes();
     void SetupUI();
@@ -141,6 +143,9 @@ public:
 
     // Theme switching
     virtual void SetTheme(Theme* theme) override;
+	
+	// Set whether to hide chat messages/subtitles
+    void SetHideSubtitle(bool hide);
 
     // FFT display methods
     virtual void StopFFT() override;

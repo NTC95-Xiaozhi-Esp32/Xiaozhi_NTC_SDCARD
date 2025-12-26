@@ -1569,6 +1569,7 @@ void Esp32SdMusic::playbackThreadFunc()
     }
 
     resetSampleRate();
+	logged_sample_rate_once_ = false;  // cho phép log lại ở bài tiếp theo
 
     if (stop_requested_) {
         state_.store(PlayerState::Stopped);
@@ -1676,9 +1677,12 @@ bool Esp32SdMusic::decodeAndPlayFile(const TrackInfo& track)
         }
 
         if (codec->output_sample_rate() != wav_sample_rate) {
-            ESP_LOGI(TAG, "Switch sample rate (WAV) → %d Hz", wav_sample_rate);
-            codec->SetOutputSampleRate(wav_sample_rate);
-        }
+			if (!logged_sample_rate_once_) {
+				ESP_LOGI(TAG, "Switch sample rate (WAV) → %d Hz", wav_sample_rate);
+				logged_sample_rate_once_ = true;
+			}
+			codec->SetOutputSampleRate(wav_sample_rate);
+		}
 
         if (fseek(fp, (long)data_offset, SEEK_SET) != 0) {
             ESP_LOGE(TAG, "Failed to seek to WAV data");
@@ -1955,11 +1959,15 @@ bool Esp32SdMusic::decodeAndPlayFile(const TrackInfo& track)
                              info.channel);
 
                     if (codec->output_sample_rate() != info.sample_rate) {
-                        ESP_LOGI(TAG, "Switch sample rate (simple-dec) → %d Hz", info.sample_rate);
-                        codec->SetOutputSampleRate(info.sample_rate);
-                    }
-                }
+						if (!logged_sample_rate_once_) {
+							ESP_LOGI(TAG, "Switch sample rate (simple-dec) → %d Hz", info.sample_rate);
+							logged_sample_rate_once_ = true;
+						}
+						codec->SetOutputSampleRate(info.sample_rate);
+					}
 
+                }
+				
                 int bits_per_sample = (info.bits_per_sample > 0)
                                       ? info.bits_per_sample
                                       : 16;
@@ -2183,9 +2191,12 @@ bool Esp32SdMusic::decodeAndPlayFile(const TrackInfo& track)
         }
 
         if (codec->output_sample_rate() != mp3_frame_info_.samprate) {
-            ESP_LOGI(TAG, "Switch sample rate → %d Hz", mp3_frame_info_.samprate);
-            codec->SetOutputSampleRate(mp3_frame_info_.samprate);
-        }
+			if (!logged_sample_rate_once_) {
+				ESP_LOGI(TAG, "Switch sample rate → %d Hz", mp3_frame_info_.samprate);
+				logged_sample_rate_once_ = true;
+			}
+			codec->SetOutputSampleRate(mp3_frame_info_.samprate);
+		}
 
         if (!codec->output_enabled()) {
             ESP_LOGW(TAG, "Audio output disabled – re-enabling.");
@@ -2310,15 +2321,21 @@ size_t Esp32SdMusic::SkipId3Tag(uint8_t* data, size_t size)
 void Esp32SdMusic::resetSampleRate()
 {
     auto codec = Board::GetInstance().GetAudioCodec();
-    if (!codec) return;
+    if (!codec) {
+        return;
+    }
 
-    int orig = codec->original_output_sample_rate();
-    if (orig <= 0) return;
+    const int before = codec->output_sample_rate();
 
-    int cur = codec->output_sample_rate();
-    if (cur != orig) {
-        ESP_LOGI(TAG, "Reset sample rate: %d → %d", cur, orig);
-        codec->SetOutputSampleRate(-1);
+    // API mới: truyền -1 để reset về sample-rate gốc
+    if (codec->SetOutputSampleRate(-1)) {
+        const int after = codec->output_sample_rate();
+        if (after != before) {
+            ESP_LOGI(TAG,
+                     "Reset sample rate: %d Hz -> %d Hz",
+                     before,
+                     after);
+        }
     }
 }
 

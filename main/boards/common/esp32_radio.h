@@ -9,6 +9,8 @@
 #include <condition_variable>
 #include <vector>
 #include <map>
+#include <cstdint>
+#include <cstddef>
 
 #include "radio.h"
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include "esp_log.h"
 #include "display.h"
+#include "ssid_manager.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -13,7 +14,7 @@ namespace audio_wifi_config
     static const char *kLogTag = "AUDIO_WIFI_CONFIG";
 
     void ReceiveWifiCredentialsFromAudio(Application *app,
-                                        WifiConfigurationAp *wifi_ap,
+                                        WifiManager *wifi_manager,
                                         Display *display,
                                         size_t input_channels
                                     )
@@ -76,6 +77,7 @@ namespace audio_wifi_config
                 // If complete data was received, extract WiFi credentials
                 if (data_buffer.decoded_text.has_value()) {
                     ESP_LOGI(kLogTag, "Received text data: %s", data_buffer.decoded_text->c_str());
+                    display->SetChatMessage("system", data_buffer.decoded_text->c_str());
                     
                     // Split SSID and password by newline character
                     std::string wifi_ssid, wifi_password;
@@ -83,21 +85,22 @@ namespace audio_wifi_config
                     if (newline_position != std::string::npos) {
                         wifi_ssid = data_buffer.decoded_text->substr(0, newline_position);
                         wifi_password = data_buffer.decoded_text->substr(newline_position + 1);
-                        std::string wifi_ssid_display = "Kết nối thành công WiFi \"" + wifi_ssid + "\"";
-                        display->SetChatMessage("system", wifi_ssid_display.c_str());
                         ESP_LOGI(kLogTag, "WiFi SSID: %s, Password: %s", wifi_ssid.c_str(), wifi_password.c_str());
                     } else {
                         ESP_LOGE(kLogTag, "Invalid data format, no newline character found");
                         continue;
                     }
                     
-                    if (wifi_ap->ConnectToWifi(wifi_ssid, wifi_password)) {
-                        wifi_ap->Save(wifi_ssid, wifi_password);  // Save WiFi credentials
-                        esp_restart();                            // Restart device to apply new WiFi configuration
-                    } else {
-                        ESP_LOGE(kLogTag, "Failed to connect to WiFi with received credentials");
-                    }
+                    // Save WiFi credentials using SsidManager
+                    auto& ssid_manager = SsidManager::GetInstance();
+                    ssid_manager.AddSsid(wifi_ssid, wifi_password);
+                    ESP_LOGI(kLogTag, "WiFi credentials saved successfully");
+                    
+                    // Exit config mode (triggers ConfigModeExit event)
+                    wifi_manager->StopConfigAp();
+                    
                     data_buffer.decoded_text.reset();  // Clear processed data
+                    return;  // Exit the function
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(1));  // 1ms delay

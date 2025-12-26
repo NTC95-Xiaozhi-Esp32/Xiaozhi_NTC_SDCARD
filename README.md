@@ -1,307 +1,172 @@
-# Xiaozhi ESP32 - Phiên bản Việt Nam
+# An MCP-based Chatbot
 
-<div style="display: flex; justify-content: space-between;>
+(English | [中文](README_zh.md) | [日本語](README_ja.md))
 
-**Chatbot AI Giọng Nói Tiếng Việt Trên Nền Tảng ESP32**
-  <a href="docs/images/01_avata.jpg" target="_blank" title="Xingzhi Cube 1.54tft Board">
-    <img src="docs/images/01_avata.jpg" width="480" />
-  </a>
-</div>
+## Introduction
 
----
+👉 [Human: Give AI a camera vs AI: Instantly finds out the owner hasn't washed hair for three days【bilibili】](https://www.bilibili.com/video/BV1bpjgzKEhd/)
 
-## 🌐 Cộng Đồng & Hỗ Trợ
+👉 [Handcraft your AI girlfriend, beginner's guide【bilibili】](https://www.bilibili.com/video/BV1XnmFYLEJN/)
 
-Tham gia cộng đồng Xiaozhi AI-IoT Vietnam để nhận hỗ trợ, chia sẻ kinh nghiệm và cập nhật tính năng mới:
+As a voice interaction entry, the XiaoZhi AI chatbot leverages the AI capabilities of large models like Qwen / DeepSeek, and achieves multi-terminal control via the MCP protocol.
 
-| Nền tảng | Link | Mô tả |
-|----------|------|-------|
-| 📱 **Zalo** | [Tham gia nhóm](https://zalo.me/g/fsyuiz890) | Nhóm hỗ trợ chính thức |
-| 📘 **Facebook** | [Tham gia nhóm](https://www.facebook.com/share/1BhraxqFBb/?mibextid=wwXIfr) | Cộng đồng Facebook |
-| 🎥 **YouTube** | [Xem hướng dẫn](https://youtu.be/g7Lh-LpxElU) | Video build chi tiết |
-| 🔧 **Web Flasher** | [Nạp ROM Online](https://tienhuyiot.github.io/esp_web_flasher/) | Nạp firmware không cần cài đặt |
+<img src="docs/mcp-based-graph.jpg" alt="Control everything via MCP" width="320">
 
----
+## Version Notes
 
-## 📖 Giới Thiệu
+The current v2 version is incompatible with the v1 partition table, so it is not possible to upgrade from v1 to v2 via OTA. For partition table details, see [partitions/v2/README.md](partitions/v2/README.md).
 
-**Xiaozhi ESP32 Vietnam** là phiên bản tùy chỉnh của dự án Xiaozhi AI Chatbot, được phát triển đặc biệt cho cộng đồng Việt Nam với nhiều tính năng bổ sung và tối ưu hóa cho thị trường Việt.
+All hardware running v1 can be upgraded to v2 by manually flashing the firmware.
 
-Dự án sử dụng chip ESP32 kết hợp với các mô hình AI lớn (Qwen, DeepSeek) để tạo ra một chatbot tương tác bằng giọng nói thông minh, hỗ trợ điều khiển IoT thông qua giao thức MCP.
+The stable version of v1 is 1.9.2. You can switch to v1 by running `git checkout v1`. The v1 branch will be maintained until February 2026.
 
-### 🎯 Dự Án Gốc
+### Features Implemented
 
-Dự án này được fork và phát triển từ [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) của tác giả Xiage.
+- Wi-Fi / ML307 Cat.1 4G
+- Offline voice wake-up [ESP-SR](https://github.com/espressif/esp-sr)
+- Supports two communication protocols ([Websocket](docs/websocket.md) or MQTT+UDP)
+- Uses OPUS audio codec
+- Voice interaction based on streaming ASR + LLM + TTS architecture
+- Speaker recognition, identifies the current speaker [3D Speaker](https://github.com/modelscope/3D-Speaker)
+- OLED / LCD display, supports emoji display
+- Battery display and power management
+- Multi-language support (Chinese, English, Japanese)
+- Supports ESP32-C3, ESP32-S3, ESP32-P4 chip platforms
+- Device-side MCP for device control (Speaker, LED, Servo, GPIO, etc.)
+- Cloud-side MCP to extend large model capabilities (smart home control, PC desktop operation, knowledge search, email, etc.)
+- Customizable wake words, fonts, emojis, and chat backgrounds with online web-based editing ([Custom Assets Generator](https://github.com/78/xiaozhi-assets-generator))
 
----
+## Hardware
 
-## ✨ Tính Năng Đã Phát Triển
+### Breadboard DIY Practice
 
-### 🎵 Giải Trí & Âm Nhạc
+See the Feishu document tutorial:
 
-#### Nghe Nhạc Việt Nam
-- Phát nhạc từ server music với khả năng cấu hình linh hoạt
-- **Không cần build lại ROM** khi thay đổi link server music
-- Hỗ trợ streaming chất lượng cao
+👉 ["XiaoZhi AI Chatbot Encyclopedia"](https://ccnphfhqs21z.feishu.cn/wiki/F5krwD16viZoF0kKkvDcrZNYnhb?from=from_copylink)
 
-#### Radio Việt Nam & Quốc Tế
-- 📻 Radio VOV (Đài Tiếng nói Việt Nam)
-- 🌍 Kênh radio tiếng Anh
-- Thêm nhiều kênh radio khác
+Breadboard demo:
 
-#### Hiển Thị Phổ Nhạc
-- 📊 Hiển thị phổ âm thanh trực quan trên màn hình **LCD**
-- 📊 Hiển thị phổ âm thanh trên màn hình **OLED**
-- Giao diện trực quan, đẹp mắt khi phát nhạc và Radio
+![Breadboard Demo](docs/v1/wiring2.jpg)
 
-### 🔄 Cập Nhật & Triển Khai
+### Supports 70+ Open Source Hardware (Partial List)
 
-#### Hệ Thống OTA
-- Cập nhật firmware qua mạng (Over-The-Air)
-- Link OTA: [https://ota-server.xiaozhi-ota.workers.dev/ota/](https://ota-server.xiaozhi-ota.workers.dev/ota/)
-- Không cần kết nối dây, cập nhật từ xa
+- <a href="https://oshwhub.com/li-chuang-kai-fa-ban/li-chuang-shi-zhan-pai-esp32-s3-kai-fa-ban" target="_blank" title="LiChuang ESP32-S3 Development Board">LiChuang ESP32-S3 Development Board</a>
+- <a href="https://github.com/espressif/esp-box" target="_blank" title="Espressif ESP32-S3-BOX3">Espressif ESP32-S3-BOX3</a>
+- <a href="https://docs.m5stack.com/zh_CN/core/CoreS3" target="_blank" title="M5Stack CoreS3">M5Stack CoreS3</a>
+- <a href="https://docs.m5stack.com/en/atom/Atomic%20Echo%20Base" target="_blank" title="AtomS3R + Echo Base">M5Stack AtomS3R + Echo Base</a>
+- <a href="https://gf.bilibili.com/item/detail/1108782064" target="_blank" title="Magic Button 2.4">Magic Button 2.4</a>
+- <a href="https://www.waveshare.net/shop/ESP32-S3-Touch-AMOLED-1.8.htm" target="_blank" title="Waveshare ESP32-S3-Touch-AMOLED-1.8">Waveshare ESP32-S3-Touch-AMOLED-1.8</a>
+- <a href="https://github.com/Xinyuan-LilyGO/T-Circle-S3" target="_blank" title="LILYGO T-Circle-S3">LILYGO T-Circle-S3</a>
+- <a href="https://oshwhub.com/tenclass01/xmini_c3" target="_blank" title="XiaGe Mini C3">XiaGe Mini C3</a>
+- <a href="https://oshwhub.com/movecall/cuican-ai-pendant-lights-up-y" target="_blank" title="Movecall CuiCan ESP32S3">CuiCan AI Pendant</a>
+- <a href="https://github.com/WMnologo/xingzhi-ai" target="_blank" title="WMnologo-Xingzhi-1.54">WMnologo-Xingzhi-1.54TFT</a>
+- <a href="https://www.seeedstudio.com/SenseCAP-Watcher-W1-A-p-5979.html" target="_blank" title="SenseCAP Watcher">SenseCAP Watcher</a>
+- <a href="https://www.bilibili.com/video/BV1BHJtz6E2S/" target="_blank" title="ESP-HI Low Cost Robot Dog">ESP-HI Low Cost Robot Dog</a>
 
-#### Nạp ROM Dễ Dàng
-- Nạp ROM trực tiếp qua trình duyệt web
-- Link Web Flasher: [https://tienhuyiot.github.io/esp_web_flasher/](https://tienhuyiot.github.io/esp_web_flasher/)
-- Không cần cài đặt driver hay công cụ phức tạp
-
-### 🤖 Hỗ Trợ Phần Cứng:
-
-#### Xingzhi Cube:
 <div style="display: flex; justify-content: space-between;">
-  <a href="docs/images/02_Xingzhi_Cube.jpg" target="_blank" title="Xingzhi Cube 1.54tft Board">
-    <img src="docs/images/02_Xingzhi_Cube.jpg" width="480" />
+  <a href="docs/v1/lichuang-s3.jpg" target="_blank" title="LiChuang ESP32-S3 Development Board">
+    <img src="docs/v1/lichuang-s3.jpg" width="240" />
+  </a>
+  <a href="docs/v1/espbox3.jpg" target="_blank" title="Espressif ESP32-S3-BOX3">
+    <img src="docs/v1/espbox3.jpg" width="240" />
+  </a>
+  <a href="docs/v1/m5cores3.jpg" target="_blank" title="M5Stack CoreS3">
+    <img src="docs/v1/m5cores3.jpg" width="240" />
+  </a>
+  <a href="docs/v1/atoms3r.jpg" target="_blank" title="AtomS3R + Echo Base">
+    <img src="docs/v1/atoms3r.jpg" width="240" />
+  </a>
+  <a href="docs/v1/magiclick.jpg" target="_blank" title="Magic Button 2.4">
+    <img src="docs/v1/magiclick.jpg" width="240" />
+  </a>
+  <a href="docs/v1/waveshare.jpg" target="_blank" title="Waveshare ESP32-S3-Touch-AMOLED-1.8">
+    <img src="docs/v1/waveshare.jpg" width="240" />
+  </a>
+  <a href="docs/v1/lilygo-t-circle-s3.jpg" target="_blank" title="LILYGO T-Circle-S3">
+    <img src="docs/v1/lilygo-t-circle-s3.jpg" width="240" />
+  </a>
+  <a href="docs/v1/xmini-c3.jpg" target="_blank" title="XiaGe Mini C3">
+    <img src="docs/v1/xmini-c3.jpg" width="240" />
+  </a>
+  <a href="docs/v1/movecall-cuican-esp32s3.jpg" target="_blank" title="CuiCan">
+    <img src="docs/v1/movecall-cuican-esp32s3.jpg" width="240" />
+  </a>
+  <a href="docs/v1/wmnologo_xingzhi_1.54.jpg" target="_blank" title="WMnologo-Xingzhi-1.54">
+    <img src="docs/v1/wmnologo_xingzhi_1.54.jpg" width="240" />
+  </a>
+  <a href="docs/v1/sensecap_watcher.jpg" target="_blank" title="SenseCAP Watcher">
+    <img src="docs/v1/sensecap_watcher.jpg" width="240" />
+  </a>
+  <a href="docs/v1/esp-hi.jpg" target="_blank" title="ESP-HI Low Cost Robot Dog">
+    <img src="docs/v1/esp-hi.jpg" width="240" />
   </a>
 </div>
 
-#### Tự lắp theo sơ đồ kết nối: 
-<div style="display: flex; justify-content: space-between;">
-  <a href="docs/images/03_diy_01.jpg" target="_blank" title="Sơ đồ kết nối mạch ĐEN">
-    <img src="docs/images/03_diy_01.jpg" width="480" />
-  </a>
-  <a href="docs/images/03_diy_02.jpg" target="_blank" title="Sơ đồ kết nối mạch TÍM">
-    <img src="docs/images/03_diy_02.jpg" width="480" />
-  </a>
-  <a href="docs/images/03_diy_03.jpg" target="_blank" title="Sơ đồ kết nối mạch TÍM">
-    <img src="docs/images/03_diy_03.jpg" width="480" />
-  </a>
-  <a href="docs/images/03_diy_04.jpg" target="_blank" title="Sơ đồ kết nối mạch TÍM">
-    <img src="docs/images/03_diy_04.jpg" width="480" />
-  </a>
-</div>
+## Software
 
-#### Otto Robot Board
-- Hỗ trợ new partition để build firmware cho board Otto Robot
-- Tích hợp điều khiển động cơ servo
-- Phù hợp cho các dự án robot giáo dục
+### Firmware Flashing
 
----
+For beginners, it is recommended to use the firmware that can be flashed without setting up a development environment.
 
-## 🚀 Tính Năng Đang Phát Triển
+The firmware connects to the official [xiaozhi.me](https://xiaozhi.me) server by default. Personal users can register an account to use the Qwen real-time model for free.
 
-Các tính năng sau đây đang được phát triển tích cực và sẽ được phát hành trong các phiên bản tương lai:
+👉 [Beginner's Firmware Flashing Guide](https://ccnphfhqs21z.feishu.cn/wiki/Zpz4wXBtdimBrLk25WdcXzxcnNS)
 
-### 🎵 Đa Phương Tiện Nâng Cao
+### Development Environment
 
-| Tính năng | Mô tả | Trạng thái |
-|-----------|-------|------------|
-| 💾 **Play music from SD card** | Phát nhạc trực tiếp từ thẻ nhớ SD | 🔨 Đang phát triển |
-| 🎬 **Play video from SD** | Phát video từ thẻ nhớ SD trên màn hình LCD | 🔨 Đang phát triển |
-| 🔊 **Phát nhạc qua Bluetooth** | Kết nối và phát nhạc qua loa Bluetooth | 🔨 Đang phát triển |
+- Cursor or VSCode
+- Install ESP-IDF plugin, select SDK version 5.4 or above
+- Linux is better than Windows for faster compilation and fewer driver issues
+- This project uses Google C++ code style, please ensure compliance when submitting code
 
-### 💰 Tích Hợp Thanh Toán & Tiện Ích Tin Tức
+### Developer Documentation
 
-| Tính năng | Mô tả | Trạng thái |
-|-----------|-------|------------|
-| 💳 **QR Code Ngân Hàng** | Hiển thị mã QR thanh toán ngân hàng Việt Nam | 📋 Kế hoạch |
-| 📈 **Giá Vàng** | Cập nhật giá vàng trong nước theo thời gian thực | 📋 Kế hoạch |
-| 📊 **Giá Chứng Khoán** | Hiển thị giá cổ phiếu VN-Index, HNX-Index | 📋 Kế hoạch |
-| 📰 **Tin Tức Tài Chính** | Cập nhật tin tức kinh tế Việt Nam | 📋 Kế hoạch |
+- [Custom Board Guide](docs/custom-board.md) - Learn how to create custom boards for XiaoZhi AI
+- [MCP Protocol IoT Control Usage](docs/mcp-usage.md) - Learn how to control IoT devices via MCP protocol
+- [MCP Protocol Interaction Flow](docs/mcp-protocol.md) - Device-side MCP protocol implementation
+- [MQTT + UDP Hybrid Communication Protocol Document](docs/mqtt-udp.md)
+- [A detailed WebSocket communication protocol document](docs/websocket.md)
 
-### 📱 Kết Nối Di Động
+## Large Model Configuration
 
-| Tính năng | Mô tả | Trạng thái |
-|-----------|-------|------------|
-| 🍎 **ANCS Bluetooth iPhone** | Kết nối iPhone nhận thông báo chỉ đường, tin nhắn | 🔨 Đang phát triển |
-| 📲 **Thông Báo Cuộc Gọi** | Hiển thị thông tin người gọi từ điện thoại | 📋 Kế hoạch |
+If you already have a XiaoZhi AI chatbot device and have connected to the official server, you can log in to the [xiaozhi.me](https://xiaozhi.me) console for configuration.
 
-### ⚙️ Hệ Thống & Cấu Hình
+👉 [Backend Operation Video Tutorial (Old Interface)](https://www.bilibili.com/video/BV1jUCUY2EKM/)
 
-| Tính năng | Mô tả | Trạng thái |
-|-----------|-------|------------|
-| 🌐 **OTA qua Webserver Nhúng** | Cập nhật firmware qua webserver tích hợp trong chip | 🔨 Đang phát triển |
-| 🔧 **Web Server Cấu Hình GPIO** | Giao diện web để cấu hình chân GPIO | 🔨 Đang phát triển |
-| 🎚️ **Tăng Mic Gain với UI** | Điều chỉnh độ nhạy microphone qua giao diện | 🔨 Đang phát triển |
-| 🔄 **Update V1 lên V2** | Hỗ trợ nâng cấp từ phiên bản V1 lên V2 | 📋 Kế hoạch |
-| 🖥️ **Hỗ Trợ Màn Hình Mới** | Build firmware cho các loại màn hình mới | 🔨 Đang phát triển |
+## Related Open Source Projects
 
-### ⏰ Tiện Ích Thông Minh
+For server deployment on personal computers, refer to the following open-source projects:
 
-| Tính năng | Mô tả | Trạng thái |
-|-----------|-------|------------|
-| ⏰ **Hẹn Giờ Báo Thức** | Thiết lập và quản lý nhiều báo thức | 🔨 Đang phát triển |
-| 🎙️ **Chủ Động Wakeup & thông báo** | Tự động kích hoạt và gửi văn bản theo lịch | 📋 Kế hoạch |
+- [xinnan-tech/xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) Python server
+- [joey-zhou/xiaozhi-esp32-server-java](https://github.com/joey-zhou/xiaozhi-esp32-server-java) Java server
+- [AnimeAIChat/xiaozhi-server-go](https://github.com/AnimeAIChat/xiaozhi-server-go) Golang server
 
-### 🏭 Tự Động Hóa Công Nghiệp
+Other client projects using the XiaoZhi communication protocol:
 
-| Tính năng | Mô tả | Trạng thái |
-|-----------|-------|------------|
-| 🏭 **ModBus RTU** | Giao thức ModBus RTU để điều khiển thiết bị công nghiệp | 📋 Kế hoạch |
-| 🌐 **ModBus TCP/IP** | Giao thức ModBus TCP/IP qua mạng Ethernet/WiFi | 📋 Kế hoạch |
+- [huangjunsen0406/py-xiaozhi](https://github.com/huangjunsen0406/py-xiaozhi) Python client
+- [TOM88812/xiaozhi-android-client](https://github.com/TOM88812/xiaozhi-android-client) Android client
+- [100askTeam/xiaozhi-linux](http://github.com/100askTeam/xiaozhi-linux) Linux client by 100ask
+- [78/xiaozhi-sf32](https://github.com/78/xiaozhi-sf32) Bluetooth chip firmware by Sichuan
+- [QuecPython/solution-xiaozhiAI](https://github.com/QuecPython/solution-xiaozhiAI) QuecPython firmware by Quectel
 
-**Chú thích trạng thái:**
-- 🔨 Đang phát triển: Đang được code và test
-- 📋 Kế hoạch: Đã lên kế hoạch, chưa bắt đầu phát triển
+Custom Assets Tools:
 
----
+- [78/xiaozhi-assets-generator](https://github.com/78/xiaozhi-assets-generator) Custom Assets Generator (Wake words, fonts, emojis, backgrounds)
 
-## 🎯 Tính Năng Cốt Lõi (Từ Dự Án Gốc)
+## About the Project
 
-### Kết Nối & Mạng
-- ✅ Wi-Fi
-- ✅ ML307 Cat.1 4G
-- ✅ Websocket hoặc MQTT+UDP
-- ✅ OPUS audio codec
+This is an open-source ESP32 project, released under the MIT license, allowing anyone to use it for free, including for commercial purposes.
 
-### AI & Giọng Nói
-- ✅ Wake word offline với [ESP-SR](https://github.com/espressif/esp-sr)
-- ✅ ASR + LLM + TTS streaming
-- ✅ Nhận dạng giọng nói với [3D Speaker](https://github.com/modelscope/3D-Speaker)
-- ✅ Đa ngôn ngữ (Tiếng Trung, Tiếng Anh, Tiếng Nhật)
+We hope this project helps everyone understand AI hardware development and apply rapidly evolving large language models to real hardware devices.
 
-### Hiển Thị & Phần Cứng
-- ✅ Màn hình OLED / LCD
-- ✅ Hiển thị biểu cảm
-- ✅ Quản lý pin
-- ✅ ESP32-C3, ESP32-S3, ESP32-P4
+If you have any ideas or suggestions, please feel free to raise Issues or join the QQ group: 1011329060
 
-### Điều Khiển IoT
-- ✅ MCP phía thiết bị (âm lượng, LED, motor, GPIO)
-- ✅ MCP đám mây (nhà thông minh, desktop, email)
-- ✅ Tùy chỉnh wake word, font, biểu cảm
+## Star History
 
----
-
-## 🛠️ Bắt Đầu Nhanh
-
-### Cho Người Dùng Cuối
-
-1. **Nạp Firmware Online**
-   - Truy cập: [https://tienhuyiot.github.io/esp_web_flasher/](https://tienhuyiot.github.io/esp_web_flasher/)
-   - Kết nối ESP32 qua USB
-   - Chọn firmware và nhấn Flash
-
-2. **Cấu Hình WiFi**
-   - Bật thiết bị
-   - Kết nối vào WiFi của ESP32
-   - Cấu hình WiFi nhà bạn
-
-3. **Sử Dụng**
-   - Nói "Sophia" để đánh thức
-   - Bắt đầu trò chuyện
-
-### Cho Nhà Phát Triển
-
-#### Yêu Cầu
-- **IDE**: VSCode hoặc Cursor
-- **Plugin**: ESP-IDF v5.4+
-- **Hệ điều hành**: Linux (khuyến nghị) hoặc Windows
-- **Code Style**: Google C++ Style Guide
-
-#### Build Từ Source
-
-```bash
-# Clone repository
-git clone https://github.com/TienHuyIoT/xiaozhi-esp32_vietnam.git
-cd xiaozhi-esp32_vietnam
-
-# Checkout nhánh develop_vn
-git checkout develop_vn
-
-# Cài đặt ESP-IDF dependencies
-# (Theo hướng dẫn của ESP-IDF)
-
-# Build
-idf.py build
-
-# Flash
-idf.py -p COM_PORT flash monitor
-```
-
----
-
-## 📚 Tài Liệu
-
-### Tài Liệu Người Dùng
-- 🎥 [Video Hướng Dẫn Build](https://youtu.be/g7Lh-LpxElU)
-- 📖 [Hướng Dẫn Nạp Firmware](https://ccnphfhqs21z.feishu.cn/wiki/Zpz4wXBtdimBrLk25WdcXzxcnNS)
-
-### Tài Liệu Kỹ Thuật
-- [Hướng dẫn bo mạch tùy chỉnh](docs/custom-board.md)
-- [Giao thức MCP - Hướng dẫn sử dụng](docs/mcp-usage.md)
-- [Giao thức MCP - Quy trình tương tác](docs/mcp-protocol.md)
-- [Tài liệu MQTT + UDP](docs/mqtt-udp.md)
-- [Tài liệu WebSocket](docs/websocket.md)
-
----
-
-## 🤝 Đóng Góp
-
-Chúng tôi rất hoan nghênh mọi đóng góp! Vui lòng:
-
-1. Fork repository này
-2. Tạo branch mới (`git checkout -b feature/TenTinhNang`)
-3. Commit thay đổi (`git commit -m 'Thêm tính năng mới'`)
-4. Push lên branch (`git push origin feature/TenTinhNang`)
-5. Tạo Pull Request
-
-### Quy Tắc Đóng Góp
-- Tuân thủ Google C++ Style Guide
-- Viết commit message rõ ràng bằng tiếng Việt hoặc tiếng Anh
-- Test kỹ trước khi tạo PR
-
----
-
-## 📄 Giấy Phép
-
-Dự án này được phát hành dưới giấy phép **MIT License**, kế thừa từ dự án gốc xiaozhi-esp32.
-
-Bạn có thể:
-- ✅ Sử dụng miễn phí cho mục đích cá nhân
-- ✅ Sử dụng cho mục đích thương mại
-- ✅ Chỉnh sửa và phân phối lại
-
----
-
-## 🙏 Cảm Ơn
-
-### Dự Án Gốc
-- [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) - Dự án gốc bởi Xiage
-
-### Thư Viện & Framework
-- [ESP-IDF](https://github.com/espressif/esp-idf) - Espressif IoT Development Framework
-- [ESP-SR](https://github.com/espressif/esp-sr) - Speech Recognition Framework
-- [3D Speaker](https://github.com/modelscope/3D-Speaker) - Speaker Recognition
-
-### Cộng Đồng
-- Cảm ơn tất cả các thành viên trong nhóm Zalo và Facebook
-- Cảm ơn những người đã đóng góp code và ý tưởng
-
----
-
-## 📞 Liên Hệ
-
-- 📱 **Zalo Group**: [https://zalo.me/g/fsyuiz890](https://zalo.me/g/fsyuiz890)
-- 📘 **Facebook Group**: [https://www.facebook.com/share/1BhraxqFBb/](https://www.facebook.com/share/1BhraxqFBb/)
-- 💻 **GitHub Issues**: [Tạo issue mới](https://github.com/TienHuyIoT/xiaozhi-esp32_vietnam/issues)
-
----
-
-<div align="center">
-
-**Made with ❤️ by Vietnam AI-IoT Community**
-
-⭐ Nếu project này hữu ích, hãy cho chúng tôi một star nhé! ⭐
-
-</div>
+<a href="https://star-history.com/#78/xiaozhi-esp32&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date" />
+ </picture>
+</a> 

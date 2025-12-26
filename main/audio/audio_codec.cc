@@ -33,12 +33,10 @@ void AudioCodec::Start() {
         ESP_LOGW(TAG, "Output volume value (%d) is too small, setting to default (10)", output_volume_);
         output_volume_ = 10;
     }
-
-    // 保存原始输出采样率
     if (original_output_sample_rate_ == 0) {
         original_output_sample_rate_ = output_sample_rate_;
-        ESP_LOGI(TAG, "Saved original output sample rate: %d Hz", original_output_sample_rate_);
     }
+
 
     if (tx_handle_ != nullptr) {
         ESP_ERROR_CHECK(i2s_channel_enable(tx_handle_));

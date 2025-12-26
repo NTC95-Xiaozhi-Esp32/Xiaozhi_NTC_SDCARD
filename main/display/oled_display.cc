@@ -14,15 +14,17 @@
 #include <cmath>
 #include <cstring>
 #include <math.h>
+#include <qrcode.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-#define SPEC_BAR_COUNT 16
-#define SPEC_BAR_WIDTH 6
-#define SPEC_BAR_GAP 2
+#define BAR_COL_NUM 16
+#define BAR_MAX_HEIGHT ((LV_VER_RES - 16) - 6)
 #define TAG "OledDisplay"
+
+static int current_heights[BAR_COL_NUM] = {0};
 
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
@@ -36,47 +38,43 @@ void OledDisplay::SetupSpectrumUI() {
     }
 
     auto screen = lv_screen_active();
+    // Create spectrum canvas instead of bar widgets
     spectrum_container_ = lv_obj_create(screen);
     if (spectrum_container_ == nullptr) {
         ESP_LOGE(TAG, "Failed to create spectrum container");
         return;
     }
-    lv_obj_set_size(spectrum_container_, LV_HOR_RES, LV_VER_RES - 16); 
+    lv_obj_set_size(spectrum_container_, LV_HOR_RES, LV_VER_RES - 16);
     lv_obj_align(spectrum_container_, LV_ALIGN_BOTTOM_MID, 0, 0);
-    
-    lv_obj_set_style_border_width(spectrum_container_, 0, 0);       // Không viền
-    lv_obj_set_style_radius(spectrum_container_, 0, 0);             // Không bo tròn
-    lv_obj_set_style_bg_color(spectrum_container_, lv_color_white(), 0); // Nền đen
-    lv_obj_set_style_bg_opa(spectrum_container_, LV_OPA_COVER, 0);   // Phủ kín
-    
+    lv_obj_set_style_border_width(spectrum_container_, 0, 0);
+    lv_obj_set_style_radius(spectrum_container_, 0, 0);
+    lv_obj_set_style_bg_opa(spectrum_container_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_pad_all(spectrum_container_, 0, 0);
-    lv_obj_set_style_pad_column(spectrum_container_, 1, 0); 
-    
-    lv_obj_set_flex_flow(spectrum_container_, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(spectrum_container_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-    
-    lv_obj_add_flag(spectrum_container_, LV_OBJ_FLAG_HIDDEN); // Mặc định ẩn
 
-    spectrum_bars_.clear();
-    for (int i = 0; i < SPEC_BAR_COUNT; i++) {
-        lv_obj_t* bar = lv_bar_create(spectrum_container_);
-        lv_obj_set_size(bar, SPEC_BAR_WIDTH, LV_VER_RES - 16); 
-        
-        lv_bar_set_range(bar, 0, 100); // Giá trị từ 0% đến 100%
-        lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-        lv_obj_set_style_bg_color(bar, lv_color_white(), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN); // Đảm bảo phủ kín
-        
-        lv_obj_set_style_bg_color(bar, lv_color_black(), LV_PART_INDICATOR);
-        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR); // Đảm bảo phủ kín
-        
-        lv_obj_set_style_radius(bar, 0, LV_PART_MAIN);
-        lv_obj_set_style_radius(bar, 0, LV_PART_INDICATOR);
-
-        spectrum_bars_.push_back(bar);
+    spectrum_canvas_ = lv_canvas_create(spectrum_container_);
+    if (!spectrum_canvas_) {
+        ESP_LOGE(TAG, "Failed to create spectrum canvas");
+        return;
     }
-    ESP_LOGI(TAG, "Spectrum UI setup completed with %d bars", SPEC_BAR_COUNT);
+    int canvas_w = LV_HOR_RES;
+    int canvas_h = LV_VER_RES - 16;
+    size_t buf_size = LV_CANVAS_BUF_SIZE(canvas_w, canvas_h, 1, LV_COLOR_FORMAT_I1);
+    spectrum_canvas_buffer_ = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (!spectrum_canvas_buffer_) {
+        ESP_LOGE(TAG, "Failed to allocate spectrum canvas buffer");
+        return;
+    }
+    memset(spectrum_canvas_buffer_, 0, buf_size);
+    lv_canvas_set_buffer(spectrum_canvas_, spectrum_canvas_buffer_, canvas_w, canvas_h, LV_COLOR_FORMAT_I1);
+    // black background, White foreground (bars)
+    lv_canvas_set_palette(spectrum_canvas_, 0, lv_color_to_32(lv_color_white(), LV_OPA_COVER));
+    lv_canvas_set_palette(spectrum_canvas_, 1, lv_color_to_32(lv_color_black(), LV_OPA_COVER));
+    lv_obj_set_size(spectrum_canvas_, canvas_w, canvas_h);
+    lv_obj_align(spectrum_canvas_, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_flag(spectrum_container_, LV_OBJ_FLAG_HIDDEN);
+    ESP_LOGI(TAG, "Spectrum canvas setup: %dx%d, buf=%u", canvas_w, canvas_h, (unsigned)buf_size);
 }
+
 OledDisplay::OledDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
     int width, int height, bool mirror_x, bool mirror_y)
     : panel_io_(panel_io), panel_(panel) {
@@ -90,6 +88,9 @@ OledDisplay::OledDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handl
     fft_imag = nullptr;
     hanning_window_float = nullptr;
     spectrum_container_ = nullptr;
+    qr_canvas_ = nullptr;
+    qr_canvas_buffer_ = nullptr;
+    qr_code_displayed_ = false;
 
     auto text_font = std::make_shared<LvglBuiltInFont>(&BUILTIN_TEXT_FONT);
     auto icon_font = std::make_shared<LvglBuiltInFont>(&BUILTIN_ICON_FONT);
@@ -191,6 +192,14 @@ OledDisplay::~OledDisplay() {
         lv_obj_del(container_);
     }
 
+    // Clean up QR code resources
+    if (qr_canvas_ != nullptr) {
+        lv_obj_del(qr_canvas_);
+    }
+    if (qr_canvas_buffer_ != nullptr) {
+        heap_caps_free(qr_canvas_buffer_);
+    }
+
     if (panel_ != nullptr) {
         esp_lcd_panel_del(panel_);
     }
@@ -267,9 +276,9 @@ void OledDisplay::SetupUI_128x64() {
     lv_obj_set_flex_flow(content_, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_flex_main_place(content_, LV_FLEX_ALIGN_CENTER, 0);
 
-    // 创建左侧固定宽度的容器
+    // Create a left-side container with fixed width
     content_left_ = lv_obj_create(content_);
-    lv_obj_set_size(content_left_, 32, LV_SIZE_CONTENT);  // 固定宽度32像素
+    lv_obj_set_size(content_left_, 32, LV_SIZE_CONTENT);  // Fixed width of 32 pixels
     lv_obj_set_style_pad_all(content_left_, 0, 0);
     lv_obj_set_style_border_width(content_left_, 0, 0);
 
@@ -279,7 +288,7 @@ void OledDisplay::SetupUI_128x64() {
     lv_obj_center(emotion_label_);
     lv_obj_set_style_pad_top(emotion_label_, 8, 0);
 
-    // 创建右侧可扩展的容器
+    // Create a right-side expandable container
     content_right_ = lv_obj_create(content_);
     lv_obj_set_size(content_right_, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_style_pad_all(content_right_, 0, 0);
@@ -294,7 +303,7 @@ void OledDisplay::SetupUI_128x64() {
     lv_obj_set_width(chat_message_label_, width_ - 32);
     lv_obj_set_style_pad_top(chat_message_label_, 14, 0);
 
-    // 延迟一定的时间后开始滚动字幕
+    // Delay for a certain amount of time before starting the scrolling text
     static lv_anim_t a;
     lv_anim_init(&a);
     lv_anim_set_delay(&a, 1000);
@@ -352,8 +361,8 @@ void OledDisplay::periodicUpdateTaskWrapper(void* arg) {
 void OledDisplay::periodicUpdateTask() {
     ESP_LOGI(TAG, "FFT Task Started");
 
-    const TickType_t displayInterval = pdMS_TO_TICKS(50);  // Display refresh interval (50ms)
-    const TickType_t audioProcessInterval = pdMS_TO_TICKS(20); // Audio processing interval (20ms)
+    const TickType_t displayInterval = pdMS_TO_TICKS(40);  // Display refresh interval (40ms)
+    const TickType_t audioProcessInterval = pdMS_TO_TICKS(15); // Audio processing interval (15ms)
     
     TickType_t lastDisplayTime = xTaskGetTickCount();
     TickType_t lastAudioTime = xTaskGetTickCount();
@@ -387,75 +396,122 @@ void OledDisplay::periodicUpdateTask() {
     vTaskDelete(NULL);
 }
 
-void OledDisplay::DrawOledSpectrum() {
-    if (spectrum_container_ == nullptr) {
-        ESP_LOGW(TAG, "spectrum_container_ is nullptr");
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        return;
+void OledDisplay::draw_block(int x, int y, int block_x_size, int block_y_size) {
+    // For monochrome I1, set pixels directly using lv_canvas_set_px
+    for (int row = y; row > y - block_y_size && row >= 0; row--) {
+        for (int col = x; col < x + block_x_size && col < LV_HOR_RES; col++) {
+            lv_canvas_set_px(spectrum_canvas_, col, row, lv_color_white(), LV_OPA_COVER);
+        }
     }
+}
 
-    if (lv_obj_has_flag(spectrum_container_, LV_OBJ_FLAG_HIDDEN)) {
-        ESP_LOGI(TAG, "Showing spectrum container");
-         lv_obj_remove_flag(spectrum_container_, LV_OBJ_FLAG_HIDDEN);
-    }
-
-    int samples_per_bar = (OLED_FFT_SIZE / 2) / SPEC_BAR_COUNT; 
-    std::string debug_vals = "";
-
-    for (int i = 0; i < SPEC_BAR_COUNT; i++) {
-        float sum = 0;
-        int count = 0;
-        
-        int start_idx = i * samples_per_bar;
-        if (start_idx < 2) start_idx = 2; // Bỏ qua 2 mẫu tần số thấp
-
-        for (int j = 0; j < samples_per_bar; j++) {
-            if ((start_idx + j) < (OLED_FFT_SIZE/2)) {
-                sum += avg_power_spectrum[start_idx + j];
-                count++;
-            }
-        }
-        
-        float val = 0;
-        if (count > 0) val = sum / count;
-
-        int bar_val = 0;
-        if (val > 0.000001f) { 
-            float db = 10.0f * log10f(val);
-            
-            float min_db = -55.0f; // Giảm xuống (từ -50) để bắt được tín hiệu yếu hơn
-            float max_db = 5.0f;   // Giảm xuống (từ 10) để cột sóng dễ đạt đỉnh hơn
-            
-            float percent = (db - min_db) / (max_db - min_db);
-            if (percent < 0) percent = 0;
-            if (percent > 1) percent = 1;
-            
-            bar_val = (int)(percent * 100.0f);
-        }
-
-        // Hiệu ứng rơi từ từ
-        int old_val = lv_bar_get_value(spectrum_bars_[i]);
-        if (bar_val < old_val) {
-             bar_val = old_val - 4; 
-             if (bar_val < 0) bar_val = 0;
-        } else {
-            // Hiệu ứng tăng nhanh (để sóng phản ứng tức thì)
-            bar_val = std::max(bar_val, old_val);
-        }
-
-
-        if (i < 4) debug_vals += std::to_string(bar_val) + " ";
-
-        if (i < spectrum_bars_.size()) {
-            lv_bar_set_value(spectrum_bars_[i], bar_val, LV_ANIM_OFF);
+void OledDisplay::draw_bar(int x, int y, int bar_width, int bar_height, int bar_index) {
+    const int block_space = 1;
+    const int block_x_size = bar_width - block_space;
+    const int block_y_size = 2;  // Smaller blocks for OLED
+    
+    int blocks_per_col = (bar_height / (block_y_size + block_space));
+    int start_x = (block_x_size + block_space) / 2 + x;
+    
+    int canvas_h = LV_VER_RES - 16;
+    
+    // Fall effect like LCD
+    if (current_heights[bar_index] < bar_height) {
+        current_heights[bar_index] = bar_height;
+    } else {
+        int fall_speed = 1;  // Slower fall for OLED
+        current_heights[bar_index] = current_heights[bar_index] - fall_speed;
+        if (current_heights[bar_index] > (block_y_size + block_space)) {
+            draw_block(start_x, canvas_h - current_heights[bar_index], block_x_size, block_y_size);
         }
     }
     
-    static int log_limit = 0;
-    if (log_limit++ > 20) {
-        ESP_LOGI("SpectrumDebug", "DB Val: %s", debug_vals.c_str());
-        log_limit = 0;
+    // Draw baseline block
+    draw_block(start_x, canvas_h - 1, block_x_size, block_y_size);
+    
+    // Draw column blocks
+    for (int j = 1; j < blocks_per_col; j++) {
+        int start_y = j * (block_y_size + block_space);
+        draw_block(start_x, canvas_h - start_y, block_x_size, block_y_size);
     }
+}
+
+void OledDisplay::draw_spectrum(float* power_spectrum, int fft_size) {
+    const int bartotal = BAR_COL_NUM;
+    int bar_height;
+    const int bar_max_height = BAR_MAX_HEIGHT;
+    const int canvas_w = LV_HOR_RES;
+    const int canvas_h = LV_VER_RES - 16;
+    const int bar_width = canvas_w / bartotal;
+    int x_pos = 0;
+    int y_pos = canvas_h - 1;
+    
+    float magnitude[bartotal] = {0};
+    float max_magnitude = 0;
+    
+    const float MIN_DB = -25.0f;
+    const float MAX_DB = 0.0f;
+    
+    // Compute magnitude per bar (same as LCD)
+    for (int bin = 0; bin < bartotal; bin++) {
+        int start = bin * (fft_size / bartotal);
+        int end = (bin + 1) * (fft_size / bartotal);
+        magnitude[bin] = 0;
+        int count = 0;
+        for (int k = start; k < end; k++) {
+            magnitude[bin] += sqrtf(power_spectrum[k]);
+            count++;
+        }
+        if (count > 0) {
+            magnitude[bin] /= count;
+        }
+        if (magnitude[bin] > max_magnitude) max_magnitude = magnitude[bin];
+    }
+    
+    // Apply same scaling as LCD
+    if (bartotal > 5) {
+        magnitude[1] = magnitude[1] * 0.6f;
+        magnitude[2] = magnitude[2] * 0.7f;
+        magnitude[3] = magnitude[3] * 0.8f;
+        magnitude[4] = magnitude[4] * 0.8f;
+        magnitude[5] = magnitude[5] * 0.9f;
+    }
+    
+    // Convert to dB
+    for (int bin = 1; bin < bartotal; bin++) {
+        if (magnitude[bin] > 0.0f && max_magnitude > 0.0f) {
+            magnitude[bin] = 20.0f * log10f(magnitude[bin] / max_magnitude + 1e-10f);
+        } else {
+            magnitude[bin] = MIN_DB;
+        }
+        if (magnitude[bin] > max_magnitude) max_magnitude = magnitude[bin];
+    }
+    
+    // Clear canvas to black background
+    lv_canvas_fill_bg(spectrum_canvas_, lv_color_black(), LV_OPA_COVER);
+    
+    // Draw bars (skip DC component k=0)
+    for (int k = 1; k < bartotal; k++) {
+        x_pos = canvas_w / bartotal * (k - 1);
+        float mag = (magnitude[k] - MIN_DB) / (MAX_DB - MIN_DB);
+        mag = std::max(0.0f, std::min(1.0f, mag));
+        bar_height = (int)(mag * bar_max_height);
+        
+        draw_bar(x_pos, y_pos, bar_width, bar_height, k - 1);
+    }
+}
+
+void OledDisplay::DrawOledSpectrum() {
+    if (spectrum_container_ == nullptr || spectrum_canvas_ == nullptr) {
+        ESP_LOGW(TAG, "Spectrum canvas not initialized");
+        return;
+    }
+    if (lv_obj_has_flag(spectrum_container_, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_remove_flag(spectrum_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // Use LCD-style block-based spectrum rendering with fall effect
+    draw_spectrum(avg_power_spectrum, OLED_FFT_SIZE / 2);
 }
 
 int16_t* OledDisplay::MakeAudioBuffFFT(size_t sample_count) {
@@ -464,36 +520,25 @@ int16_t* OledDisplay::MakeAudioBuffFFT(size_t sample_count) {
     }
     return final_pcm_data_fft;
 }
-/*
+
 void OledDisplay::FeedAudioDataFFT(int16_t* data, size_t sample_count) {
     if (final_pcm_data_fft != nullptr) {
         memcpy(final_pcm_data_fft, data, sample_count);
     }
 }
-*/
-void OledDisplay::FeedAudioDataFFT(int16_t* data, size_t sample_count) {
-    if (final_pcm_data_fft != nullptr) {
-        memcpy(final_pcm_data_fft, data, sample_count);
-        
-        // Thêm đoạn log debug này (nhớ xóa sau khi chạy được)
-        static int debug_count = 0;
-        if (debug_count++ > 100) {
-            ESP_LOGI(TAG, "Dang nhan du lieu audio: %d bytes", sample_count);
-            debug_count = 0;
-        }
-    } else {
-        // Nếu buffer chưa được tạo, báo lỗi
-        static int err_count = 0;
-        if (err_count++ > 100) {
-            ESP_LOGE(TAG, "Loi: final_pcm_data_fft la NULL!");
-            err_count = 0;
-        }
-    }
-}
+
 void OledDisplay::StartFFT() {
     if (fft_task_handle != nullptr) return;
     fft_task_should_stop = false;
-    xTaskCreate(periodicUpdateTaskWrapper, "oled_fft", 4096 * 2, this, 1, &fft_task_handle);
+    xTaskCreatePinnedToCore(
+        periodicUpdateTaskWrapper,
+        "display_fft",      // Task name
+        1024 * 3,           // Stack size
+        this,               // Parameter
+        1,                  // Priority
+        &fft_task_handle,   // Save to member variable
+        0                   // Run on core 0
+    );
 }
 
 void OledDisplay::StopFFT() {
@@ -700,7 +745,7 @@ void OledDisplay::SetupUI_128x32() {
     lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_label_set_text(chat_message_label_, "");
 
-    // 延迟一定的时间后开始滚动字幕
+    // Delay for a certain amount of time before starting the scrolling text
     static lv_anim_t a;
     lv_anim_init(&a);
     lv_anim_set_delay(&a, 1000);
@@ -733,7 +778,7 @@ void OledDisplay::SetTheme(Theme* theme) {
 }
 
 void OledDisplay::SetMusicInfo(const char* song_name) {
-    // 默认实现：对于非微信模式，将歌名显示在聊天消息标签中
+    // Default implementation: For non-WeChat mode, display the song name in the chat message label
     DisplayLockGuard lock(this);
     if (chat_message_label_ == nullptr) {
         return;
@@ -745,4 +790,174 @@ void OledDisplay::SetMusicInfo(const char* song_name) {
     } else {
         lv_label_set_text(chat_message_label_, "");
     }
+}
+
+void OledDisplay::DisplayQRCode(const uint8_t* qrcode, const char* text) {
+    DisplayLockGuard lock(this);
+    if (qrcode == nullptr) {
+        ESP_LOGE(TAG, "QR code is null");
+        return;
+    }
+
+    // Hide spectrum container if visible
+    if (spectrum_container_ != nullptr) {
+        lv_obj_add_flag(spectrum_container_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // Hide main UI containers to show QR code
+    if (container_ != nullptr) {
+        lv_obj_add_flag(container_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // Get QR code size
+    int qr_size = esp_qrcode_get_size(qrcode);
+    ESP_LOGI(TAG, "QR code size: %d, text: %s", qr_size, text != nullptr ? text : "N/A");
+
+    // Calculate pixel size for OLED (smaller than LCD)
+    int max_size = (width_ < height_ ? width_ : height_) - 10; // Leave margin
+    int pixel_size = max_size / qr_size;
+    if (pixel_size < 1) pixel_size = 1; // Minimum 1 pixel per module for OLED
+    ESP_LOGI(TAG, "QR code pixel size: %d", pixel_size);
+
+    auto screen = lv_screen_active();
+    
+    // Delete old canvas if exists
+    if (qr_canvas_ != nullptr) {
+        lv_obj_del(qr_canvas_);
+        qr_canvas_ = nullptr;
+    }
+    if (qr_canvas_buffer_ != nullptr) {
+        heap_caps_free(qr_canvas_buffer_);
+        qr_canvas_buffer_ = nullptr;
+    }
+    
+    // Create new canvas with correct size for monochrome I1 format
+    int canvas_w = width_;
+    int canvas_h = height_;
+    
+    // Calculate buffer size properly for I1 format (1 bit per pixel)
+    // LV_CANVAS_BUF_SIZE already handles I1 format correctly
+    size_t buf_size = LV_CANVAS_BUF_SIZE(canvas_w, canvas_h, 1, LV_COLOR_FORMAT_I1);
+    ESP_LOGI(TAG, "Allocating canvas buffer: %dx%d, size=%d bytes", canvas_w, canvas_h, buf_size);
+    
+    qr_canvas_buffer_ = (uint8_t*)heap_caps_malloc(buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (qr_canvas_buffer_ == nullptr) {
+        ESP_LOGE(TAG, "Failed to allocate QR canvas buffer");
+        return;
+    }
+    memset(qr_canvas_buffer_, 0, buf_size); // Clear buffer
+    
+    qr_canvas_ = lv_canvas_create(screen);
+    if (qr_canvas_ == nullptr) {
+        ESP_LOGE(TAG, "Failed to create canvas object");
+        heap_caps_free(qr_canvas_buffer_);
+        qr_canvas_buffer_ = nullptr;
+        return;
+    }
+    
+    lv_canvas_set_buffer(qr_canvas_, qr_canvas_buffer_, canvas_w, canvas_h, LV_COLOR_FORMAT_I1);
+    // Set palette for I1 (1-bit) format based on inversion setting
+    lv_canvas_set_palette(qr_canvas_, 0, lv_color_to_32(lv_color_white(), LV_OPA_COVER));
+    lv_canvas_set_palette(qr_canvas_, 1, lv_color_to_32(lv_color_black(), LV_OPA_COVER));
+    lv_obj_set_size(qr_canvas_, canvas_w, canvas_h);
+    lv_obj_center(qr_canvas_);
+    
+    // Fill background using palette index 0 mapping
+    lv_canvas_fill_bg(qr_canvas_, lv_color_black(), LV_OPA_COVER);
+    ESP_LOGI(TAG, "Canvas created and background filled");
+    
+    // Initialize layer for drawing
+    lv_layer_t layer;
+    lv_canvas_init_layer(qr_canvas_, &layer);
+    
+    // Setup rect descriptor for QR code modules per inversion setting
+    lv_draw_rect_dsc_t rect_dsc;
+    lv_draw_rect_dsc_init(&rect_dsc);
+    rect_dsc.bg_color = lv_color_white();
+    rect_dsc.bg_opa = LV_OPA_COVER;
+
+    // Ensure drawing uses foreground palette index on I1
+    rect_dsc.border_opa = LV_OPA_TRANSP;
+    
+    // Calculate QR code position (centered)
+    int qr_display_size = qr_size * pixel_size;
+    int qr_pos_x = (width_ - qr_display_size) / 2;
+    int qr_pos_y = (height_ - qr_display_size) / 2 - 5; // Move up a bit for text
+    
+    ESP_LOGI(TAG, "Drawing QR code at position: x=%d, y=%d, size=%d", qr_pos_x, qr_pos_y, qr_display_size);
+    
+    // Draw QR code modules
+    int module_count = 0;
+    for (int y = 0; y < qr_size; y++) {
+        for (int x = 0; x < qr_size; x++) {
+            if (esp_qrcode_get_module(qrcode, x, y)) {
+                module_count++;
+                lv_area_t coords_rect;
+                coords_rect.x1 = x * pixel_size + qr_pos_x;
+                coords_rect.y1 = y * pixel_size + qr_pos_y;
+                coords_rect.x2 = (x + 1) * pixel_size - 1 + qr_pos_x;
+                coords_rect.y2 = (y + 1) * pixel_size - 1 + qr_pos_y;
+                
+                lv_draw_rect(&layer, &rect_dsc, &coords_rect);
+            }
+        }
+    }
+    ESP_LOGI(TAG, "Drew %d QR modules", module_count);
+
+    // Draw text at bottom if provided
+    if (text != nullptr || !ip_address_.empty()) {
+        lv_draw_label_dsc_t label_dsc;
+        lv_draw_label_dsc_init(&label_dsc);
+        label_dsc.color = lv_color_white();
+        label_dsc.text = text != nullptr ? text : ip_address_.c_str();
+
+        auto lvgl_theme = static_cast<LvglTheme*>(current_theme_);
+        auto text_font = lvgl_theme->text_font()->font();
+        label_dsc.font = text_font;
+        
+        int text_pos_y = qr_pos_y + qr_display_size + 2;
+        lv_area_t coords_text = {0, text_pos_y, width_ - 1, height_ - 1};
+        lv_draw_label(&layer, &label_dsc, &coords_text);
+        ESP_LOGI(TAG, "QR text drawn: %s", label_dsc.text);
+    }
+    
+    // Finish layer
+    lv_canvas_finish_layer(qr_canvas_, &layer);
+    
+    // Make sure canvas is visible and on top
+    lv_obj_remove_flag(qr_canvas_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(qr_canvas_);
+    
+    ESP_LOGI(TAG, "QR code canvas completed and moved to foreground");
+    qr_code_displayed_ = true;
+}
+
+void OledDisplay::ClearQRCode() {
+    if (!qr_code_displayed_) {
+        return;
+    }
+
+    qr_code_displayed_ = false;
+    DisplayLockGuard lock(this);
+    
+    if (qr_canvas_ != nullptr) {
+        ESP_LOGI(TAG, "Clearing QR code from OLED canvas");
+        lv_obj_add_flag(qr_canvas_, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // Restore main UI containers
+    if (container_ != nullptr) {
+        lv_obj_remove_flag(container_, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    ESP_LOGI(TAG, "QR code cleared, UI restored");
+}
+
+bool OledDisplay::QRCodeIsSupported() {
+    return true;  // Enable QR code support for OLED
+}
+
+void OledDisplay::SetIpAddress(const std::string& ip_address) {
+    ip_address_ = ip_address;
+    ESP_LOGI(TAG, "IP address set to: %s", ip_address_.c_str());
 }

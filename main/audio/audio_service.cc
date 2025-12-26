@@ -381,7 +381,7 @@ void AudioService::SetDecodeSampleRate(int sample_rate, int frame_duration) {
 
     auto codec = Board::GetInstance().GetAudioCodec();
     if (opus_decoder_->sample_rate() != codec->output_sample_rate()) {
-        ESP_LOGI(TAG, "Resampling audio from %d to %d, frame_duration %d", opus_decoder_->sample_rate(), codec->output_sample_rate(), frame_duration);
+        ESP_LOGI(TAG, "Resampling audio from %d to %d", opus_decoder_->sample_rate(), codec->output_sample_rate());
         output_resampler_.Configure(opus_decoder_->sample_rate(), codec->output_sample_rate());
     }
 }
@@ -634,6 +634,10 @@ void AudioService::ResetDecoder() {
     audio_queue_cv_.notify_all();
 }
 
+void AudioService::UpdateOutputTimestamp() {
+    last_output_time_ = std::chrono::steady_clock::now();
+}
+
 void AudioService::CheckAndUpdateAudioPowerState() {
     auto now = std::chrono::steady_clock::now();
     auto input_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_input_time_).count();
@@ -675,10 +679,6 @@ void AudioService::SetModelsList(srmodel_list_t* models_list) {
             }
         });
     }
-}
-
-void AudioService::UpdateOutputTimestamp() {
-    last_output_time_ = std::chrono::steady_clock::now();
 }
 
 bool AudioService::IsAfeWakeWord() {

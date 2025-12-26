@@ -11,79 +11,29 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "sdmusic.h"
+
 extern "C" {
 #include "mp3dec.h"
 }
 
-class Esp32SdMusic {
+class Esp32SdMusic : public SdMusic {
 public:
-    // ============================================================
-    // 1) ENUM — State Machine
-    // ============================================================
-    enum class PlayerState {
-        Stopped = 0,
-        Preparing,
-        Playing,
-        Paused,
-        Error
-    };
-
-    // ============================================================
-    // 2) ENUM — Repeat modes
-    // ============================================================
-    enum class RepeatMode {
-        None = 0,
-        RepeatOne,
-        RepeatAll
-    };
-
-    // ============================================================
-    // 3) Struct TrackInfo — dữ liệu một bài (đã tối giản ID3)
-    //  - Chỉ còn ID3v1 (title/artist/album/genre/comment/year/track)
-    //  - KHÔNG còn mtime, cover_offset, ID3v2 text
-    //  - Duration/bitrate tính từ MP3 frame + file_size
-    // ============================================================
-    struct TrackInfo {
-        // Hiển thị
-        std::string name;   // Tên hiển thị (ưu tiên ID3v1 title, fallback tên file)
-        std::string path;   // Đường dẫn tuyệt đối
-
-        // Metadata cơ bản (từ ID3v1 — rất nhẹ)
-        std::string title;
-        std::string artist;
-        std::string album;
-        std::string genre;
-        std::string comment;
-        std::string year;
-        int         track_number = 0;
-
-        // Audio info (cập nhật khi decode)
-        int   duration_ms  = 0;
-        int   bitrate_kbps = 0;
-        size_t file_size   = 0;  // dùng cho info/debug, không cache theo mtime
-
-        // Cover art (không parse nữa nhưng giữ field để không phá tool MCP)
-        uint32_t    cover_size = 0;   // luôn 0 vì không parse APIC
-        std::string cover_mime;       // luôn rỗng
-    };
-
-    // ============================================================
-    // 4) Struct Progress — dành cho UI
-    // ============================================================
-    struct TrackProgress {
-        int64_t position_ms = 0;
-        int64_t duration_ms = 0;
-    };
+    // Types are defined in SdMusic (interface).
+    using SdMusic::PlayerState;
+    using SdMusic::RepeatMode;
+    using SdMusic::TrackInfo;
+    using SdMusic::TrackProgress;
 
 public:
     // ============================================================
-    // 5) Constructor / Destructor
+    // Constructor / Destructor
     // ============================================================
     Esp32SdMusic();
     ~Esp32SdMusic();
 
     // ============================================================
-    // 6) Playlist API cơ bản
+    // Playlist API cơ bản
     // ============================================================
     // Đọc playlist từ playlist.json, nếu không có/hỏng sẽ quét SD và ghi lại
     bool loadTrackList();
@@ -119,7 +69,7 @@ public:
     bool rebuildPlaylistFromSd();
 
     // ============================================================
-    // 7) Playback API
+    // Playback API
     // ============================================================
     bool play();
     void pause();
@@ -129,13 +79,13 @@ public:
     bool prev();
 
     // ============================================================
-    // 8) Playback Settings
+    // Playback Settings
     // ============================================================
     void shuffle(bool enabled);
     void repeat(RepeatMode mode);
 
     // ============================================================
-    // 9) Query state / FFT
+    // Query state / FFT
     // ============================================================
     PlayerState getState() const;
     TrackProgress updateProgress() const;
@@ -148,14 +98,14 @@ public:
     std::string getCurrentTimeString() const;
 
     // ============================================================
-    // 10) Gợi ý bài hát
+    // Gợi ý bài hát
     // ============================================================
     std::vector<TrackInfo> suggestNextTracks(size_t max_results = 5);
     std::vector<TrackInfo> suggestSimilarTo(const std::string& name_or_path,
                                             size_t max_results = 5);
 
     // ============================================================
-    // 11) Playlist theo THỂ LOẠI (dựa trên ID3v1 genre index)
+    // Playlist theo THỂ LOẠI (dựa trên ID3v1 genre index)
     // ============================================================
     bool buildGenrePlaylist(const std::string& genre);
     bool playGenreIndex(int pos);
@@ -241,6 +191,9 @@ private:
     // History / gợi ý
     mutable std::mutex history_mutex_;
     std::vector<int> play_history_indices_;
+	
+	// Log sample-rate (chỉ 1 lần mỗi bài)
+    bool logged_sample_rate_once_ = false;
 };
 
 #endif // ESP32_SD_MUSIC_H

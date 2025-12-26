@@ -2,6 +2,8 @@
 #define MUSIC_H
 
 #include <string>
+#include <cstddef>
+#include <cstdint>
 
 class Music {
 public:

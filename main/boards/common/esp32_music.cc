@@ -142,7 +142,7 @@ static std::string url_encode(const std::string& str) {
 }
 
 // Thời gian nghe tối thiểu để quyết định có lưu file MP3
-static constexpr int64_t kMinCachePlayTimeMs = 5 * 1000; // 5 giây
+static constexpr int64_t kMinCachePlayTimeMs = 15 * 1000; // 15 giây
 
 // ==================== AUTO EVICT OLDEST SONGS ON SD ====================
 // Giới hạn số bài trong thư mục /sdcard/music.
@@ -950,7 +950,7 @@ void Esp32Music::DownloadAudioStream(const std::string& music_url) {
     ESP_LOGI(TAG, "Started downloading audio stream, status: %d", status_code);
 
     // Read audio data in chunks
-    const size_t chunk_size = 4096;  // 4KB per chunk
+    const size_t chunk_size = 8192;  // 8KB per chunk
     char* buffer = new char[chunk_size];
     size_t total_downloaded = 0;
     size_t total_print_bytes = 0;
@@ -1077,9 +1077,10 @@ void Esp32Music::PlayAudioStream() {
     // Wait for the buffer to have enough data to start playback
     {
         std::unique_lock<std::mutex> lock(buffer_mutex_);
-        buffer_cv_.wait(lock, [this] {
-            return buffer_size_ >= MIN_BUFFER_SIZE || (!is_downloading_ && !audio_buffer_.empty());
-        });
+        constexpr size_t kMinPrebuffer = 64 * 1024; // 64KB
+		buffer_cv_.wait(lock, [this] {
+			return buffer_size_ >= kMinPrebuffer || (!is_downloading_ && !audio_buffer_.empty());
+		});
     }
 
     ESP_LOGI(TAG, "Starting playback with buffer size: %d", (int)buffer_size_);
@@ -1521,16 +1522,14 @@ void Esp32Music::CleanupMp3Decoder() {
 
 // Reset the sample rate to the original value
 void Esp32Music::ResetSampleRate() {
-    auto& board = Board::GetInstance();
-    auto codec = board.GetAudioCodec();
-    if (codec && codec->original_output_sample_rate() > 0 &&
-        codec->output_sample_rate() != codec->original_output_sample_rate()) {
-            ESP_LOGI(TAG, "Resetting sample rate: %d Hz -> %d Hz",
-                codec->output_sample_rate(), codec->original_output_sample_rate());
-        if (codec->SetOutputSampleRate(-1)) {  // -1: Reset to the original value
-            ESP_LOGI(TAG, "Sample rate reset to original value: %d Hz", codec->output_sample_rate());
-        } else {
-            ESP_LOGW(TAG, "Failed to reset sample rate to original value");
+    auto codec = Board::GetInstance().GetAudioCodec();
+    if (!codec) return;
+
+    int before = codec->output_sample_rate();
+    if (codec->SetOutputSampleRate(-1)) {
+        int after = codec->output_sample_rate();
+        if (after != before) {
+            ESP_LOGI(TAG, "Resetting sample rate: %d Hz -> %d Hz", before, after);
         }
     }
 }

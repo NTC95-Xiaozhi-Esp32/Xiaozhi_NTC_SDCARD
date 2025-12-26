@@ -1,0 +1,9 @@
+{
+    "target": "esp32s3",
+    "builds": [
+        {
+            "name": "sp-esp32-s3-2.8-freenove-touch",
+            "sdkconfig_append": []
+        }
+    ]
+}

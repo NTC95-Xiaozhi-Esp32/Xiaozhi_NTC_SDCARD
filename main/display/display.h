@@ -14,6 +14,8 @@
 
 #include <string>
 #include <chrono>
+#include <cstdint>
+#include <cstddef>
 
 class Theme {
 public:
@@ -52,6 +54,9 @@ public:
     virtual void ClearQRCode() {}
     virtual void DisplayQRCode(const uint8_t* qrcode, const char* text = nullptr) {}
     virtual void SetIpAddress(const std::string& ip_address) {}
+    // Optional capability check
+    virtual bool QRCodeIsSupported() { return false; }
+
 
     // For rotation display
     virtual bool SetRotation(int rotation_degree, bool save_setting) { return false; }

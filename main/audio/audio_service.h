@@ -6,6 +6,9 @@
 #include <condition_variable>
 #include <chrono>
 #include <mutex>
+#include <functional>
+#include <string>
+#include <string_view>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -106,9 +109,12 @@ public:
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
+
+    // Used by external audio sources (music/radio/sdmusic) that bypass the internal playback queue.
+    // Keeps the audio power management from disabling the output while PCM is being written directly to the codec.
+    void UpdateOutputTimestamp();
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
-    void UpdateOutputTimestamp();
     void SetModelsList(srmodel_list_t* models_list);
 
 private:

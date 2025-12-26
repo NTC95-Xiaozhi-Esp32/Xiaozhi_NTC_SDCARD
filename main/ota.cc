@@ -1,6 +1,5 @@
 #include "ota.h"
 #include "system_info.h"
-#include "http_client.h"
 #include "settings.h"
 #include "assets/lang_config.h"
 
@@ -21,6 +20,7 @@
 #include <algorithm>
 
 #define TAG "Ota"
+
 
 Ota::Ota() {
 #ifdef ESP_EFUSE_BLOCK_USR_DATA
@@ -68,130 +68,10 @@ std::unique_ptr<Http> Ota::SetupHttp() {
     return http;
 }
 
-/*
+/* 
  * Specification: https://ccnphfhqs21z.feishu.cn/wiki/FjW6wZmisimNBBkov6OcmfvknVd
-
-Header for check version request:
-    Activation-Version  : 1
-    Device-Id           : 90:70:69:19:9d:00
-    Client-Id           : 15040d5c-6f08-4244-9062-b467dab3f290
-    User-Agent          : xingzhi-cube-1.54tft-wifi/2.0.4
-    Accept-Language     : vi-VN
-    Content-Type        : application/json
-
-Check version URL: https://api.tenclass.net/xiaozhi/ota/
-Method: POST
-Body for check version request data:
-
-{
-  "version": 2,
-  "language": "vi-VN",
-  "flash_size": 16777216,
-  "minimum_free_heap_size": "8377212",
-  "mac_address": "90:70:69:...",
-  "uuid": "15040d5c-6f08-4244-9062-....",
-  "chip_model_name": "esp32s3",
-  "chip_info": {
-    "model": 9,
-    "cores": 2,
-    "revision": 2,
-    "features": 18
-  },
-  "application": {
-    "name": "xiaozhi",
-    "version": "2.0.4",
-    "compile_time": "Nov 16 2025T11:28:08Z",
-    "idf_version": "v5.5.1",
-    "elf_sha256": "d62e9efb413a4fba304f77d431d970886ff83e28a94dea96..."
-  },
-  "partition_table": [
-    {
-      "label": "nvs",
-      "type": 1,
-      "subtype": 2,
-      "address": 36864,
-      "size": 16384
-    },
-    {
-      "label": "otadata",
-      "type": 1,
-      "subtype": 0,
-      "address": 53248,
-      "size": 8192
-    },
-    {
-      "label": "phy_init",
-      "type": 1,
-      "subtype": 1,
-      "address": 61440,
-      "size": 4096
-    },
-    {
-      "label": "ota_0",
-      "type": 0,
-      "subtype": 16,
-      "address": 131072,
-      "size": 4128768
-    },
-    {
-      "label": "ota_1",
-      "type": 0,
-      "subtype": 17,
-      "address": 4259840,
-      "size": 4128768
-    },
-    {
-      "label": "assets",
-      "type": 1,
-      "subtype": 130,
-      "address": 8388608,
-      "size": 8388608
-    }
-  ],
-  "ota": {
-    "label": "ota_0"
-  },
-  "display": {
-    "monochrome": false,
-    "width": 240,
-    "height": 240
-  },
-  "board": {
-    "type": "xingzhi-cube-1.54tft-wifi",
-    "name": "xingzhi-cube-1.54tft-wifi",
-    "ssid": "Quyen_2.4G",
-    "rssi": -26,
-    "channel": 12,
-    "ip": "192.168.1.43",
-    "mac": "90:70:69:19:9d:00"
-  }
-}
-
-Server response:
-{
-    "mqtt": {
-        "endpoint": "mqtt.xiaozhi.me",
-        "client_id": "GID_test@@@90_70_69_19_9d_00@@@15040d5c-6f08-4244-9062-...",
-        "username": "eyJpcCI6IjE3MS4yNDAu...",
-        "password": "2wKM7rd6bgXz9oRj24QsOs/EI9Y7QF...",
-        "publish_topic": "device-server",
-        "subscribe_topic": "null"
-    },
-    "websocket": {
-        "url": "wss://api.tenclass.net/xiaozhi/v1/",
-        "token": "test-token"
-    },
-    "server_time": {
-        "timestamp": 1763450769828,
-        "timezone_offset": 420
-    },
-    "firmware": {
-        "version": "2.0.4",
-        "url": ""
-    }
-}
  */
-bool Ota::CheckVersion(std::string& url) {
+esp_err_t Ota::CheckVersion() {
     auto& board = Board::GetInstance();
     auto app_desc = esp_app_get_description();
 
@@ -199,51 +79,41 @@ bool Ota::CheckVersion(std::string& url) {
     current_version_ = app_desc->version;
     ESP_LOGI(TAG, "Current version: %s", current_version_.c_str());
 
-    if (url.length() == 0) {
-        url = GetCheckVersionUrl();
-        if (url == CONFIG_OTA_URL) {
-            ESP_LOGI(TAG, "Check version URL is using default: %s - canceling check", url.c_str());
-            return true;
-        }
-    }
-
+    std::string url = GetCheckVersionUrl();
     if (url.length() < 10) {
         ESP_LOGE(TAG, "Check version URL is not properly set");
-        return false;
+        return ESP_ERR_INVALID_ARG;
     }
 
     auto http = SetupHttp();
 
     std::string data = board.GetSystemInfoJson();
-    ESP_LOGI(TAG, "Check version URL: %s", url.c_str());
-    // ESP_LOGI(TAG, "Check version request data: %s", data.c_str());
     std::string method = data.length() > 0 ? "POST" : "GET";
     http->SetContent(std::move(data));
 
     if (!http->Open(method, url)) {
-        ESP_LOGE(TAG, "Failed to open HTTP connection");
-        return false;
+        int last_error = http->GetLastError();
+        ESP_LOGE(TAG, "Failed to open HTTP connection, code=0x%x", last_error);
+        return last_error;
     }
 
     auto status_code = http->GetStatusCode();
     if (status_code != 200) {
         ESP_LOGE(TAG, "Failed to check version, status code: %d", status_code);
-        return false;
+        return status_code;
     }
 
     data = http->ReadAll();
     http->Close();
 
-    // Response: { "firmware": { "version": "1.0.0", "url": "http://", "force": 0 } }
+    // Response: { "firmware": { "version": "1.0.0", "url": "http://" } }
     // Parse the JSON response and check if the version is newer
     // If it is, set has_new_version_ to true and store the new version and URL
-    if (url != CONFIG_OTA_URL) {
-        ESP_LOGI(TAG, "JSON response  %s", data.c_str());
-    }
+    
     cJSON *root = cJSON_Parse(data.c_str());
     if (root == NULL) {
         ESP_LOGE(TAG, "Failed to parse JSON response");
-        return false;
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     has_activation_code_ = false;
@@ -348,12 +218,6 @@ bool Ota::CheckVersion(std::string& url) {
         if (cJSON_IsString(url)) {
             firmware_url_ = url->valuestring;
         }
-        cJSON *size = cJSON_GetObjectItem(firmware, "size");
-        firmware_size_ = 0;
-        if (cJSON_IsNumber(size)) {
-            firmware_size_ = size->valueint;
-            ESP_LOGI(TAG, "Firmware size from server: %d bytes", firmware_size_);
-        }
 
         if (cJSON_IsString(version) && cJSON_IsString(url)) {
             // Check if the version is newer, for example, 0.1.0 is newer than 0.0.1
@@ -368,23 +232,13 @@ bool Ota::CheckVersion(std::string& url) {
             if (cJSON_IsNumber(force) && force->valueint == 1) {
                 has_new_version_ = true;
             }
-
-            if (firmware_url_.length() == 0) {
-                ESP_LOGE(TAG, "Firmware URL is empty");
-                has_new_version_ = false;
-            }
         }
-        // For testing purposes
-        // firmware_version_ = "2.0.4";
-        // firmware_url_ = "https://cdn.jsdelivr.net/gh/TienHuyIoT/esp_web_flasher@master/ota_bin/xingzhi-cube-1.54tft-wifi.bin";
-        // has_new_version_ = true;
-
     } else {
         ESP_LOGW(TAG, "No firmware section found!");
     }
 
     cJSON_Delete(root);
-    return true;
+    return ESP_OK;
 }
 
 void Ota::MarkCurrentVersionValid() {
@@ -407,7 +261,7 @@ void Ota::MarkCurrentVersionValid() {
     }
 }
 
-bool Ota::Upgrade(const std::string& firmware_url) {
+bool Ota::Upgrade(const std::string& firmware_url, std::function<void(int progress, size_t speed)> callback) {
     ESP_LOGI(TAG, "Upgrading firmware from %s", firmware_url.c_str());
     esp_ota_handle_t update_handle = 0;
     auto update_partition = esp_ota_get_next_update_partition(NULL);
@@ -422,9 +276,6 @@ bool Ota::Upgrade(const std::string& firmware_url) {
 
     auto network = Board::GetInstance().GetNetwork();
     auto http = network->CreateHttp(0);
-    auto user_agent = SystemInfo::GetUserAgent();
-    http->SetHeader("User-Agent", user_agent);
-    http->SetHeader("Content-Type", "*/*");
     if (!http->Open("GET", firmware_url)) {
         ESP_LOGE(TAG, "Failed to open HTTP connection");
         return false;
@@ -438,16 +289,8 @@ bool Ota::Upgrade(const std::string& firmware_url) {
     size_t content_length = http->GetBodyLength();
     if (content_length == 0) {
         ESP_LOGE(TAG, "Failed to get content length");
-        if (firmware_size_ > 0) {
-            content_length = firmware_size_;
-        } else {
-            esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, NULL);
-            const esp_partition_t *partition = esp_partition_get(it);
-            content_length = partition->size;
-        }
-        // return false;
+        return false;
     }
-    ESP_LOGI(TAG, "Firmware size: %u bytes", content_length);
 
     char buffer[512];
     size_t total_read = 0, recent_read = 0;
@@ -465,8 +308,8 @@ bool Ota::Upgrade(const std::string& firmware_url) {
         if (esp_timer_get_time() - last_calc_time >= 1000000 || ret == 0) {
             size_t progress = total_read * 100 / content_length;
             ESP_LOGI(TAG, "Progress: %u%% (%u/%u), Speed: %uB/s", progress, total_read, content_length, recent_read);
-            if (upgrade_callback_) {
-                upgrade_callback_(progress, recent_read);
+            if (callback) {
+                callback(progress, recent_read);
             }
             last_calc_time = esp_timer_get_time();
             recent_read = 0;
@@ -525,14 +368,9 @@ bool Ota::Upgrade(const std::string& firmware_url) {
 }
 
 bool Ota::StartUpgrade(std::function<void(int progress, size_t speed)> callback) {
-    upgrade_callback_ = callback;
-    return Upgrade(firmware_url_);
+    return Upgrade(firmware_url_, callback);
 }
 
-bool Ota::StartUpgradeFromUrl(const std::string& url, std::function<void(int progress, size_t speed)> callback) {
-    upgrade_callback_ = callback;
-    return Upgrade(url);
-}
 
 std::vector<int> Ota::ParseVersion(const std::string& version) {
     std::vector<int> versionNumbers;

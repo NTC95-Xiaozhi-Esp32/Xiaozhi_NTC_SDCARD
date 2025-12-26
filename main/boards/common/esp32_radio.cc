@@ -806,16 +806,14 @@ void Esp32Radio::ClearAudioBuffer() {
 
 
 void Esp32Radio::ResetSampleRate() {
-    auto& board = Board::GetInstance();
-    auto codec = board.GetAudioCodec();
-    if (codec && codec->original_output_sample_rate() > 0 && 
-        codec->output_sample_rate() != codec->original_output_sample_rate()) {
-        ESP_LOGI(TAG, "Resetting sample rate: from %d Hz back to original value %d Hz", 
-                codec->output_sample_rate(), codec->original_output_sample_rate());
-        if (codec->SetOutputSampleRate(-1)) {
-            ESP_LOGI(TAG, "Successfully reset sample rate to original value: %d Hz", codec->output_sample_rate());
-        } else {
-            ESP_LOGW(TAG, "Failed to reset sample rate to original value");
+    auto codec = Board::GetInstance().GetAudioCodec();
+    if (!codec) return;
+
+    int before = codec->output_sample_rate();
+    if (codec->SetOutputSampleRate(-1)) {
+        int after = codec->output_sample_rate();
+        if (after != before) {
+            ESP_LOGI(TAG, "Resetting sample rate: from %d Hz back to %d Hz", before, after);
         }
     }
 }
