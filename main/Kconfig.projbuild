@@ -8,7 +8,7 @@ config OTA_URL
 
 choice
     prompt "Flash Assets"
-    default FLASH_CUSTOM_ASSETS
+    default FLASH_DEFAULT_ASSETS
     help
         Select the assets to flash.
 
@@ -114,7 +114,7 @@ endchoice
 
 choice BOARD_TYPE
     prompt "Board Type"
-    default BOARD_TYPE_SPOTPEAR_ESP32_S3_1_54_MUMA
+    default BOARD_TYPE_FREEENOVE_ESP32_S3_2_8_TOUCH
     help
         Board type. 开发板类型
     config BOARD_TYPE_BREAD_COMPACT_WIFI
