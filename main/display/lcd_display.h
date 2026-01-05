@@ -13,6 +13,10 @@
 #include <string>
 #include <cstdint>
 
+// Optional weather overlay (declared elsewhere)
+class WeatherService;
+class WeatherWidget;
+
 #define PREVIEW_IMAGE_DURATION_MS 5000
 
 // Theme color structure
@@ -54,6 +58,10 @@ protected:
     std::string ip_address_;
     std::string music_info_;
 	bool hide_subtitle_ = false;  // Control whether to hide chat messages/subtitles
+
+    // --- Optional Weather widget overlay (full-screen overlay on idle) ---
+    WeatherWidget* weather_widget_ = nullptr;
+    bool weather_widget_visible_ = false;
 
     void InitializeLcdThemes();
     void SetupUI();
@@ -161,6 +169,13 @@ public:
 
     // Rotate lcd display
     virtual bool SetRotation(int rotation_degree, bool save_setting) override;
+
+    // Weather widget overlay (optional)
+    virtual void InitWeatherWidget(WeatherService* service) override;
+    virtual void ShowWeatherWidget() override;
+    virtual void HideWeatherWidget() override;
+    virtual void ToggleWeatherWidget() override;
+    virtual void UpdateWeatherWidget() override;
 
     // Karaoke UI
     virtual void UpdateKaraokeLine(const char* cur, const char* next) override;

@@ -42,6 +42,7 @@ enum AecMode {
 };
 
 class SdMusic;
+class WeatherService;
 
 
 class Application {
@@ -144,6 +145,10 @@ private:
     AudioService audio_service_;
     std::unique_ptr<Ota> ota_;
 
+    // --- Optional weather subsystem ---
+    bool network_connected_ = false;
+    std::unique_ptr<WeatherService> weather_service_;
+
     bool has_server_time_ = false;
     bool aborted_ = false;
     bool assets_version_checked_ = false;
@@ -171,6 +176,10 @@ private:
     void InitializeProtocol();
     void ShowActivationCode(const std::string& code, const std::string& message);
     void SetListeningMode(ListeningMode mode);
+
+    // Weather subsystem helpers
+    void StartWeatherSubsystemIfReady();
+    void StopWeatherSubsystem();
     
     // State change handler called by state machine
     void OnStateChanged(DeviceState old_state, DeviceState new_state);

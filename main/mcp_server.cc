@@ -20,6 +20,7 @@
 #include "esp32_music.h"
 #include "esp32_radio.h"
 #include "esp32_sd_music.h"
+#include "alarm_manager.h"
 
 #define TAG "MCP"
 
@@ -123,6 +124,122 @@ void McpServer::AddCommonTools() {
             });
     }
 #endif
+
+    // ---------------------------------------------------------------------
+	// Alarm tools (self.alarm.*) 
+	//
+	// days_mask encoding:
+	//   Bit0=Sun, Bit1=Mon, ... Bit6=Sat
+	//   0   -> one-shot
+	//   127 -> every day
+	//   weekdays (Mon-Fri) => 62
+	// ---------------------------------------------------------------------
+	{
+		auto& alarm = AlarmManager::GetInstance();
+
+		AddTool("self.alarm.set",
+			"Tạo/cập nhật báo thức.",
+			PropertyList({
+				Property("id", kPropertyTypeString, std::string("")),
+				Property("hour", kPropertyTypeInteger, 0, 23),
+				Property("minute", kPropertyTypeInteger, 0, 59),
+				Property("days_mask", kPropertyTypeInteger, 0, 0, 127),
+				Property("repeat_daily", kPropertyTypeBoolean, false),
+				Property("enabled", kPropertyTypeBoolean, true),
+				Property("label", kPropertyTypeString, std::string("")),
+				Property("ringtone", kPropertyTypeString, std::string("ga")),
+				Property("snooze_minutes", kPropertyTypeInteger, 10, 1, 120),
+				Property("ring_interval_sec", kPropertyTypeInteger, 10, 1, 60),
+				Property("max_rings", kPropertyTypeInteger, 10, 1, 60),
+			}),
+			[&alarm](const PropertyList& p) -> ReturnValue {
+				Alarm spec;
+				spec.id = p["id"].value<std::string>();
+				spec.hour = p["hour"].value<int>();
+				spec.minute = p["minute"].value<int>();
+
+				int mask = p["days_mask"].value<int>();
+				bool repeat_daily = p["repeat_daily"].value<bool>();
+				if (repeat_daily) {
+					mask = 127;
+				}
+				spec.days_mask = static_cast<uint8_t>(mask);
+
+				spec.enabled = p["enabled"].value<bool>();
+				spec.label = p["label"].value<std::string>();
+				spec.ringtone = p["ringtone"].value<std::string>();
+				spec.snooze_minutes = p["snooze_minutes"].value<int>();
+				spec.ring_interval_sec = p["ring_interval_sec"].value<int>();
+				spec.max_rings = p["max_rings"].value<int>();
+
+				std::string out_id, err;
+				if (!alarm.UpsertAlarm(spec, out_id, err)) {
+					std::string msg = err.empty() ? "Failed" : err;
+					return std::string("{\"success\":false,\"message\":\"") + msg + "\"}";
+				}
+				return std::string("{\"success\":true,\"id\":\"") + out_id + "\",\"message\":\"OK\"}";
+			});
+
+		AddTool("self.alarm.list",
+			"Danh sách báo thức + trạng thái reo/snooze.",
+			PropertyList(),
+			[&alarm](const PropertyList&) -> ReturnValue {
+				std::string json;
+				alarm.ListAlarms(json);
+				return json;
+			});
+
+		AddTool("self.alarm.delete",
+			"Xoá báo thức theo id.",
+			PropertyList({
+				Property("id", kPropertyTypeString)
+			}),
+			[&alarm](const PropertyList& p) -> ReturnValue {
+				auto id = p["id"].value<std::string>();
+				bool ok = alarm.DeleteAlarm(id);
+				return ok ? "{\"success\":true}" : "{\"success\":false,\"message\":\"Alarm not found\"}";
+			});
+
+		AddTool("self.alarm.enable",
+			"Bật/tắt báo thức theo id.",
+			PropertyList({
+				Property("id", kPropertyTypeString),
+				Property("enabled", kPropertyTypeBoolean, true)
+			}),
+			[&alarm](const PropertyList& p) -> ReturnValue {
+				auto id = p["id"].value<std::string>();
+				bool en = p["enabled"].value<bool>();
+				bool ok = alarm.SetAlarmEnabled(id, en);
+				return ok ? "{\"success\":true}" : "{\"success\":false,\"message\":\"Alarm not found\"}";
+			});
+
+		AddTool("self.alarm.clear",
+			"Xoá toàn bộ báo thức.",
+			PropertyList(),
+			[&alarm](const PropertyList&) -> ReturnValue {
+				alarm.RemoveAll();
+				return "{\"success\":true}";
+			});
+
+		AddTool("self.alarm.stop",
+			"Dismiss báo thức đang reo và huỷ snooze nếu có.",
+			PropertyList(),
+			[&alarm](const PropertyList&) -> ReturnValue {
+				bool ok = alarm.StopRinging();
+				return ok ? "{\"success\":true}" : "{\"success\":false,\"message\":\"Not ringing\"}";
+			});
+
+		AddTool("self.alarm.snooze",
+			"Snooze báo thức đang reo.",
+			PropertyList({
+				Property("minutes", kPropertyTypeInteger, 0, 0, 120)
+			}),
+			[&alarm](const PropertyList& p) -> ReturnValue {
+				int m = p["minutes"].value<int>();
+				bool ok = alarm.Snooze(m);
+				return ok ? "{\"success\":true}" : "{\"success\":false,\"message\":\"Not ringing\"}";
+			});
+	}
 
 		auto music = board.GetMusic();
 		if (music) {

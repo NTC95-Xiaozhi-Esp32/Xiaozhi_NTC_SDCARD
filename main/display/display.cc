@@ -32,6 +32,12 @@ void Display::ShowNotification(const char* notification, int duration_ms) {
     ESP_LOGW(TAG, "ShowNotification: %s", notification);
 }
 
+void Display::ClearNotification() {
+    // Best-effort default: show an empty notification briefly so implementations
+    // that auto-hide notifications will restore the status label.
+    ShowNotification("", 1);
+}
+
 void Display::UpdateStatusBar(bool update_all) {
 }
 

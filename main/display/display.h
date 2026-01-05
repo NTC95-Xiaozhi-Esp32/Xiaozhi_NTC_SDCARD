@@ -27,14 +27,23 @@ private:
     std::string name_;
 };
 
+class WeatherService;
+
 class Display {
 public:
     Display();
     virtual ~Display();
 
     virtual void SetStatus(const char* status);
+    // Show a temporary or sticky message in the status bar area.
+    // - duration_ms > 0 : auto-hide after duration_ms
+    // - duration_ms <= 0: sticky, stays until ClearNotification() (recommended)
+    //   or SetStatus() is called by the application.
     virtual void ShowNotification(const char* notification, int duration_ms = 3000);
     virtual void ShowNotification(const std::string &notification, int duration_ms = 3000);
+    // Immediately restore the normal status bar (hide notification if any).
+    // Default implementation is best-effort; LVGL displays override for instant hide.
+    virtual void ClearNotification();
     virtual void SetEmotion(const char* emotion);
     virtual void SetChatMessage(const char* role, const char* content);
     virtual void SetMusicInfo(const char* song_name);
@@ -60,6 +69,14 @@ public:
 
     // For rotation display
     virtual bool SetRotation(int rotation_degree, bool save_setting) { return false; }
+
+    // --- Weather overlay (default no-op) ---
+    // Intended for LVGL-based displays. Non-LVGL displays can ignore.
+    virtual void InitWeatherWidget(WeatherService* /*service*/) {}
+    virtual void ShowWeatherWidget() {}
+    virtual void HideWeatherWidget() {}
+    virtual void ToggleWeatherWidget() {}
+    virtual void UpdateWeatherWidget() {}
 	
 	// --- Karaoke UI (default no-op) ---
     virtual void UpdateKaraokeLine(const char* cur, const char* next) {}

@@ -11,6 +11,9 @@
 #include "settings.h"
 #include "sd_mount.h"
 
+// Optional weather subsystem
+#include "weather_service.h"
+
 #include <cstring>
 #include <vector>
 #include <array>
@@ -275,6 +278,7 @@ void Application::Run() {
 
 void Application::HandleNetworkConnectedEvent() {
     ESP_LOGI(TAG, "Network connected");
+    network_connected_ = true;
     auto state = GetDeviceState();
 
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
@@ -296,9 +300,15 @@ void Application::HandleNetworkConnectedEvent() {
     // Update the status bar immediately to show the network state
     auto display = Board::GetInstance().GetDisplay();
     display->UpdateStatusBar(true);
+
+    // Start weather subsystem when possible (avoids extra traffic during activation)
+    StartWeatherSubsystemIfReady();
 }
 
 void Application::HandleNetworkDisconnectedEvent() {
+    network_connected_ = false;
+    StopWeatherSubsystem();
+
     // Close current conversation when network disconnected
     auto state = GetDeviceState();
     if (state == kDeviceStateConnecting || state == kDeviceStateListening || state == kDeviceStateSpeaking) {
@@ -331,6 +341,9 @@ void Application::HandleActivationDoneEvent() {
     ota_.reset();
     auto& board = Board::GetInstance();
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+
+    // Weather is primarily intended for the idle "screen saver" state.
+    StartWeatherSubsystemIfReady();
 }
 
 void Application::ActivationTask() {
@@ -912,6 +925,18 @@ void Application::OnStateChanged(DeviceState old_state, DeviceState new_state) {
         if (auto display = board.GetDisplay()) {
             display->ClearQRCode();
         }
+
+        // Hide weather overlay when leaving idle.
+        Schedule([this]() {
+            if (auto display = Board::GetInstance().GetDisplay()) {
+                display->HideWeatherWidget();
+            }
+        });
+    }
+
+    // Show weather overlay when entering idle (if enabled/available).
+    if (new_state == kDeviceStateIdle && old_state != kDeviceStateIdle) {
+        Schedule([this]() { StartWeatherSubsystemIfReady(); });
     }
 }
 
@@ -934,6 +959,72 @@ void Application::AbortSpeaking(AbortReason reason) {
 void Application::SetListeningMode(ListeningMode mode) {
     listening_mode_ = mode;
     SetDeviceState(kDeviceStateListening);
+}
+
+// -----------------------------------------------------------------------------
+// Weather subsystem (optional)
+// -----------------------------------------------------------------------------
+
+void Application::StartWeatherSubsystemIfReady() {
+    if (!network_connected_) {
+        return;
+    }
+
+    // Avoid extra network requests while activating/upgrading.
+    auto state = GetDeviceState();
+    if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring || state == kDeviceStateActivating ||
+        state == kDeviceStateUpgrading) {
+        return;
+    }
+
+    if (!weather_service_) {
+        weather_service_ = std::make_unique<WeatherService>();
+
+        // Wire callbacks (always hop back to main task for UI updates)
+        weather_service_->OnWeatherUpdated([this](const WeatherData&) {
+            Schedule([this]() {
+                if (auto display = Board::GetInstance().GetDisplay()) {
+                    display->UpdateWeatherWidget();
+                }
+            });
+        });
+        weather_service_->OnError([this](const std::string& err) {
+            Schedule([this, err]() {
+                ESP_LOGW(TAG, "Weather error: %s", err.c_str());
+                if (auto display = Board::GetInstance().GetDisplay()) {
+                    // Keep it unobtrusive: show a short notification only while idle
+                    if (GetDeviceState() == kDeviceStateIdle) {
+                        display->ShowNotification(err.c_str(), 3000);
+                    }
+                }
+            });
+        });
+
+        // Initialize overlay on LCD displays
+        if (auto display = Board::GetInstance().GetDisplay()) {
+            display->InitWeatherWidget(weather_service_.get());
+        }
+    }
+
+    weather_service_->Start();
+
+    // If we are idle, show overlay; otherwise keep it hidden.
+    if (auto display = Board::GetInstance().GetDisplay()) {
+        if (GetDeviceState() == kDeviceStateIdle) {
+            display->ShowWeatherWidget();
+        } else {
+            display->HideWeatherWidget();
+        }
+    }
+}
+
+void Application::StopWeatherSubsystem() {
+    if (auto display = Board::GetInstance().GetDisplay()) {
+        display->HideWeatherWidget();
+    }
+    if (weather_service_) {
+        weather_service_->Stop();
+    }
 }
 
 void Application::Reboot() {

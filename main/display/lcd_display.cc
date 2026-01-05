@@ -26,6 +26,10 @@
 #include "application.h"
 #include "lvgl.h"
 
+// Optional weather overlay
+#include "weather_service.h"
+#include "weather_widget.h"
+
 // ============================================================
 //  SD MUSIC PLAYER ACCESS (LVGL 9.x)
 // ============================================================
@@ -415,6 +419,13 @@ MipiLcdDisplay::MipiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel
 
 LcdDisplay::~LcdDisplay() {
     SetPreviewImage(nullptr);
+
+    // Clean up optional weather widget overlay (it is parented to the active screen)
+    if (weather_widget_ != nullptr) {
+        delete weather_widget_;
+        weather_widget_ = nullptr;
+        weather_widget_visible_ = false;
+    }
     
     // Clean up GIF controller
     if (gif_controller_) {
@@ -549,6 +560,8 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_flex_grow(notification_label_, 1);
     lv_obj_set_style_text_align(notification_label_, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(notification_label_, lvgl_theme->text_color(), 0);
+    // Long notifications (e.g., alarm) scroll horizontally.
+    lv_label_set_long_mode(notification_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_label_set_text(notification_label_, "");
     lv_obj_add_flag(notification_label_, LV_OBJ_FLAG_HIDDEN);
 
@@ -2454,4 +2467,74 @@ bool LcdDisplay::SetRotation(int rotation_degree, bool save_setting) {
     Settings settings("display", true);
     settings.SetInt("rotation_degree", rotation_degree);
     return true;
+}
+
+// -----------------------------------------------------------------------------
+// Weather widget overlay (optional)
+// -----------------------------------------------------------------------------
+
+void LcdDisplay::InitWeatherWidget(WeatherService* service) {
+    if (weather_widget_ != nullptr) {
+        ESP_LOGW(TAG, "Weather widget already initialized");
+        return;
+    }
+    if (service == nullptr) {
+        ESP_LOGE(TAG, "Weather service is null, cannot initialize widget");
+        return;
+    }
+
+    DisplayLockGuard lock(this);
+    lv_obj_t* screen = lv_screen_active();
+    if (screen == nullptr) {
+        ESP_LOGE(TAG, "Failed to get active screen");
+        return;
+    }
+
+    weather_widget_ = new WeatherWidget(screen, service);
+    weather_widget_visible_ = false;
+    ESP_LOGI(TAG, "Weather widget initialized successfully");
+}
+
+void LcdDisplay::ShowWeatherWidget() {
+    if (weather_widget_ == nullptr) {
+        ESP_LOGW(TAG, "Weather widget not initialized");
+        return;
+    }
+    DisplayLockGuard lock(this);
+    weather_widget_->Show();
+    weather_widget_visible_ = true;
+}
+
+void LcdDisplay::HideWeatherWidget() {
+    if (weather_widget_ == nullptr) {
+        ESP_LOGW(TAG, "Weather widget not initialized");
+        return;
+    }
+    DisplayLockGuard lock(this);
+    weather_widget_->Hide();
+    weather_widget_visible_ = false;
+}
+
+void LcdDisplay::ToggleWeatherWidget() {
+    if (weather_widget_ == nullptr) {
+        ESP_LOGW(TAG, "Weather widget not initialized");
+        return;
+    }
+    if (weather_widget_visible_) {
+        HideWeatherWidget();
+    } else {
+        ShowWeatherWidget();
+    }
+}
+
+void LcdDisplay::UpdateWeatherWidget() {
+    if (weather_widget_ == nullptr) {
+        return;
+    }
+    // Only refresh if currently visible.
+    if (weather_widget_visible_) {
+        DisplayLockGuard lock(this);
+        // WeatherWidget::Show() refreshes UI but also keeps the clock timer running.
+        weather_widget_->Show();
+    }
 }

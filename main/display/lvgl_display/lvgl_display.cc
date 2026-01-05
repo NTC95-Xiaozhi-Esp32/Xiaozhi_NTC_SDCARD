@@ -91,11 +91,26 @@ void LvglDisplay::ShowNotification(const char* notification, int duration_ms) {
         return;
     }
     lv_label_set_text(notification_label_, notification);
+    // Allow long notifications to scroll horizontally.
+    lv_label_set_long_mode(notification_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_remove_flag(notification_label_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
 
     esp_timer_stop(notification_timer_);
-    ESP_ERROR_CHECK(esp_timer_start_once(notification_timer_, duration_ms * 1000));
+    // duration_ms <= 0 -> sticky notification (do not auto-hide)
+    if (duration_ms > 0) {
+        ESP_ERROR_CHECK(esp_timer_start_once(notification_timer_, duration_ms * 1000));
+    }
+}
+
+void LvglDisplay::ClearNotification() {
+    DisplayLockGuard lock(this);
+    if (notification_label_ == nullptr || status_label_ == nullptr) {
+        return;
+    }
+    esp_timer_stop(notification_timer_);
+    lv_obj_add_flag(notification_label_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void LvglDisplay::UpdateStatusBar(bool update_all) {
