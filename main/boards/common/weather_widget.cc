@@ -609,8 +609,8 @@ void WeatherWidget::CreateUI() {
     // --- GIẢM KÍCH THƯỚC ĐỒNG HỒ  ---
     const int zoom_clock       = static_cast<int>(zoom_std * 0.60f);  // Giảm từ 0.70 xuống 0.60
     
-    const int zoom_icon_main   = static_cast<int>(zoom_std * 1.20f);  
-    const int zoom_icon_forecast = static_cast<int>(zoom_std * 0.70f); 
+    const int zoom_icon_main   = static_cast<int>(zoom_std * 1.35f);  
+    const int zoom_icon_forecast = static_cast<int>(zoom_std * 0.75f); 
 
     // Root container
     container_ = lv_obj_create(parent_);
