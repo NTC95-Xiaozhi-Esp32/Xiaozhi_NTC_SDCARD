@@ -28,18 +28,23 @@ LV_FONT_DECLARE(lv_font_ds_digitb_48);
 
 #define TAG "WeatherWidget"
 
-// --- Colors ---
-#define COLOR_BG            lv_color_hex(0x000000)
-#define COLOR_NEON_GREEN    lv_color_hex(0x39FF14)
-#define COLOR_ORANGE        lv_color_hex(0xFFA500)
-#define COLOR_WHITE         lv_color_hex(0xFFFFFF)
-#define COLOR_GRAY          lv_color_hex(0x808080)
-#define COLOR_CYAN          lv_color_hex(0x00FFFF)
-#define COLOR_BLUE          lv_color_hex(0x4DA6FF)
-#define COLOR_MAGENTA       lv_color_hex(0xFF00FF)
+// --- Colors (VIVID HIGH-CONTRAST THEME) ---
+#define COLOR_BG            lv_color_hex(0x000000) // Pure Black (tối ưu độ tương phản)
+#define COLOR_WHITE         lv_color_hex(0xFFFFFF) // Trắng tinh
+#define COLOR_SILVER        lv_color_hex(0xB0B0B0) // Bạc (text phụ)
+#define COLOR_DIM           lv_color_hex(0x606060) // Xám tối (placeholder)
 
-#define GRAD_START          COLOR_CYAN
-#define GRAD_END            COLOR_MAGENTA
+// Accent Colors (Màu tươi sáng, nổi bật trên nền đen)
+#define COLOR_VIVID_CYAN    lv_color_hex(0x00FFFF) // Cyan (Mưa, Gió)
+#define COLOR_VIVID_YELLOW  lv_color_hex(0xFFD700) // Gold (Nắng, Nhiệt độ chính)
+#define COLOR_VIVID_PINK    lv_color_hex(0xFF1493) // Deep Pink (Sấm sét, Áp suất)
+#define COLOR_VIVID_BLUE    lv_color_hex(0x1E90FF) // Dodger Blue (Mây, Biển báo)
+#define COLOR_VIVID_GREEN   lv_color_hex(0x00FF7F) // Spring Green (Độ ẩm, trong lành)
+#define COLOR_VIVID_ORANGE  lv_color_hex(0xFF8C00) // Dark Orange
+
+// Gradient Bars (Purple -> Blue)
+#define GRAD_START          lv_color_hex(0x8A2BE2) // BlueViolet
+#define GRAD_END            lv_color_hex(0x4169E1) // RoyalBlue
 
 namespace {
 
@@ -83,7 +88,9 @@ static lv_obj_t* CreateDotsRow(lv_obj_t* parent, int screen_width, float w_ratio
         }
         lv_obj_set_size(dot, s, s);
         lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(dot, COLOR_NEON_GREEN, 0);
+        // Dùng màu trắng mờ để trang trí tinh tế
+        lv_obj_set_style_bg_color(dot, COLOR_WHITE, 0);
+        lv_obj_set_style_bg_opa(dot, LV_OPA_30, 0); 
         lv_obj_set_style_border_width(dot, 0, 0);
     }
     (void)screen_width;
@@ -138,29 +145,29 @@ static lv_color_t WeatherIconColor(const std::string& code_or_name) {
     int kind = 0;
     bool night = false;
     if (ParseOpenWeatherIconCode(code_or_name, &kind, &night)) {
-        (void)night; // hiện tại chỉ đổi theo loại, không theo ngày/đêm
+        (void)night; 
         if (kind == 1) {   // clear
-            return COLOR_NEON_GREEN;
+            return COLOR_VIVID_YELLOW; // Nắng vàng rực
         }
         if (kind == 2) {   // few clouds
-            return COLOR_ORANGE;
+            return COLOR_VIVID_ORANGE; // Mây nắng cam
         }
         if (kind == 3 || kind == 4) { // clouds
-            return COLOR_GRAY;
+            return COLOR_VIVID_BLUE;   // Mây xanh dương
         }
         if (kind == 9 || kind == 10) { // rain
-            return COLOR_BLUE;
+            return COLOR_VIVID_CYAN;   // Mưa xanh lơ
         }
         if (kind == 11) {  // thunder
-            return COLOR_MAGENTA;
+            return COLOR_VIVID_PINK;   // Sấm hồng tím
         }
         if (kind == 13) {  // snow
-            return COLOR_WHITE;
+            return COLOR_WHITE;        // Tuyết trắng
         }
         if (kind == 50) {  // mist/wind
-            return COLOR_CYAN;
+            return COLOR_VIVID_GREEN;  // Sương mù xanh nhạt
         }
-        return COLOR_GRAY;
+        return COLOR_SILVER;
     }
 
     std::string lower = code_or_name;
@@ -168,28 +175,28 @@ static lv_color_t WeatherIconColor(const std::string& code_or_name) {
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     if (lower.find("thunder") != std::string::npos || lower.find("storm") != std::string::npos) {
-        return COLOR_MAGENTA;
+        return COLOR_VIVID_PINK;
     }
     if (lower.find("rain") != std::string::npos || lower.find("drizzle") != std::string::npos) {
-        return COLOR_BLUE;
+        return COLOR_VIVID_CYAN;
     }
     if (lower.find("snow") != std::string::npos) {
         return COLOR_WHITE;
     }
     if (lower.find("wind") != std::string::npos || lower.find("mist") != std::string::npos ||
         lower.find("fog") != std::string::npos || lower.find("haze") != std::string::npos) {
-        return COLOR_CYAN;
+        return COLOR_VIVID_GREEN;
     }
     if (lower == "sun" || lower.find("clear") != std::string::npos) {
-        return COLOR_NEON_GREEN;
+        return COLOR_VIVID_YELLOW;
     }
     if (lower == "cloud_sun") {
-        return COLOR_ORANGE;
+        return COLOR_VIVID_ORANGE;
     }
     if (lower.find("cloud") != std::string::npos) {
-        return COLOR_GRAY;
+        return COLOR_VIVID_BLUE;
     }
-    return COLOR_GRAY;
+    return COLOR_SILVER;
 }
 
 static void ApplyWeatherIconColor(lv_obj_t* label, const std::string& icon) {
@@ -200,16 +207,16 @@ static void ApplyWeatherIconColor(lv_obj_t* label, const std::string& icon) {
 }
 
 template <typename T, typename = void>
-struct HasSunriseMember : std::false_type {};
+struct HasSunriseLocalMember : std::false_type {};
 
 template <typename T>
-struct HasSunriseMember<T, std::void_t<decltype(std::declval<T>().sunrise)>> : std::true_type {};
+struct HasSunriseLocalMember<T, std::void_t<decltype(std::declval<T>().sunrise_local)>> : std::true_type {};
 
 template <typename T, typename = void>
-struct HasSunsetMember : std::false_type {};
+struct HasSunsetLocalMember : std::false_type {};
 
 template <typename T>
-struct HasSunsetMember<T, std::void_t<decltype(std::declval<T>().sunset)>> : std::true_type {};
+struct HasSunsetLocalMember<T, std::void_t<decltype(std::declval<T>().sunset_local)>> : std::true_type {};
 
 template <typename V>
 static bool TryGetUnixSeconds(const V& v, int64_t* out) {
@@ -237,13 +244,13 @@ static int64_t NormalizeUnixSeconds(int64_t t) {
 
 static std::string FormatHHMMFromUnix(int64_t unix_seconds) {
     time_t tt = static_cast<time_t>(NormalizeUnixSeconds(unix_seconds));
-    tm tm_local {};
-    if (!localtime_r(&tt, &tm_local)) {
+    tm tm_utc {};
+    if (!gmtime_r(&tt, &tm_utc)) {
         return "--:--";
     }
     char buf[6];
-    snprintf(buf, sizeof(buf), "%02u:%02u", static_cast<unsigned>(tm_local.tm_hour),
-             static_cast<unsigned>(tm_local.tm_min));
+    snprintf(buf, sizeof(buf), "%02u:%02u", static_cast<unsigned>(tm_utc.tm_hour),
+             static_cast<unsigned>(tm_utc.tm_min));
     return std::string(buf);
 }
 
@@ -313,6 +320,7 @@ void WeatherWidget::CreateGradientBars(lv_obj_t* parent, int screen_width, int s
     if (!inited) {
         lv_style_init(&style_grad);
         lv_style_set_bg_opa(&style_grad, LV_OPA_COVER);
+        // Gradient dọc: Tím -> Xanh (Trendy)
         lv_style_set_bg_grad_color(&style_grad, GRAD_END);
         lv_style_set_bg_color(&style_grad, GRAD_START);
         lv_style_set_radius(&style_grad, 0);
@@ -364,7 +372,9 @@ void WeatherWidget::CreateDetailArc(lv_obj_t* parent,
     lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_arc_width(arc, std::max(2, box_size / 10), LV_PART_MAIN);
     lv_obj_set_style_arc_width(arc, std::max(2, box_size / 10), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(0x333333), LV_PART_MAIN);
+    
+    // Nền Arc màu xám đậm (Dark Gray) để nổi màu chính
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x222222), LV_PART_MAIN);
     lv_obj_set_style_arc_color(arc, color, LV_PART_INDICATOR);
     *arc_out = arc;
 
@@ -564,18 +574,19 @@ std::string WeatherWidget::NormalizeVietnameseForFont(const std::string& input) 
 }
 
 void WeatherWidget::CreateUI() {
-    // ===== Visual theme (only colors + icon sizes adjusted) =====
-    const lv_color_t COL_BG            = lv_color_hex(0x0B1020);  // deep navy
-    const lv_color_t COL_TEXT_PRIMARY  = lv_color_hex(0xE6EDF3);  // near-white
-    const lv_color_t COL_TEXT_MUTED    = lv_color_hex(0x9BA4B5);  // muted gray
-    const lv_color_t COL_TEXT_DIM      = lv_color_hex(0x6B7485);  // dimmer gray
+    // ===== Visual theme (High Contrast OLED) =====
+    const lv_color_t COL_BG            = COLOR_BG;
+    const lv_color_t COL_TEXT_PRIMARY  = COLOR_WHITE;
+    const lv_color_t COL_TEXT_MUTED    = COLOR_SILVER;
+    const lv_color_t COL_TEXT_DIM      = COLOR_DIM;
 
-    const lv_color_t COL_ACCENT_BLUE   = lv_color_hex(0x4DA6FF);
-    const lv_color_t COL_ACCENT_TEAL   = lv_color_hex(0x2EE6A6);
-    const lv_color_t COL_ACCENT_PURPLE = lv_color_hex(0xB56BFF);
-    const lv_color_t COL_ACCENT_AMBER  = lv_color_hex(0xFFB020);
+    // Specific Accent Colors for Data types
+    const lv_color_t COL_ACCENT_HUMID  = COLOR_VIVID_GREEN;
+    const lv_color_t COL_ACCENT_PRESS  = COLOR_VIVID_PINK;
+    const lv_color_t COL_ACCENT_WIND   = COLOR_VIVID_CYAN;
+    const lv_color_t COL_ACCENT_SUN    = COLOR_VIVID_YELLOW;
 
-    const lv_color_t COL_ICON_TOP      = lv_color_hex(0xC9D1D9);
+    const lv_color_t COL_ICON_TOP      = COLOR_SILVER;
 
     // Tỷ lệ scale
     const float h_ratio = static_cast<float>(screen_height_) / 280.0f;
@@ -590,8 +601,8 @@ void WeatherWidget::CreateUI() {
     }
 
     // Icon zoom (changed)
-    const int zoom_icon_top      = static_cast<int>(zoom_std * 0.92f);  // wifi/bat slightly smaller
-    const int zoom_icon_main     = static_cast<int>(zoom_std * 1.35f);  // main weather icon larger
+    const int zoom_icon_top       = static_cast<int>(zoom_std * 0.92f);  // wifi/bat slightly smaller
+    const int zoom_icon_main      = static_cast<int>(zoom_std * 1.35f);  // main weather icon larger
     const int zoom_icon_forecast = static_cast<int>(zoom_std * 0.78f);  // forecast icons slightly larger
 
     // Root container
@@ -682,8 +693,8 @@ void WeatherWidget::CreateUI() {
         if (i == 2 || i == 5) {
             lv_obj_set_width(lbl_clock_digits_[i], colon_w);
             lv_label_set_text(lbl_clock_digits_[i], ":");
-            // Make separators slightly dimmer for readability
-            lv_obj_set_style_text_color(lbl_clock_digits_[i], COL_TEXT_MUTED, 0);
+            // Dấu hai chấm màu xám nhạt để tách biệt
+            lv_obj_set_style_text_color(lbl_clock_digits_[i], COL_TEXT_DIM, 0);
         } else {
             lv_obj_set_width(lbl_clock_digits_[i], digit_w);
             lv_label_set_text(lbl_clock_digits_[i], "0");
@@ -713,7 +724,7 @@ void WeatherWidget::CreateUI() {
 
     label_main_icon_ = lv_label_create(group_weather_);
     lv_obj_set_style_text_font(label_main_icon_, &font_awesome_30_4, 0);
-    lv_obj_set_style_text_color(label_main_icon_, COL_ACCENT_BLUE, 0);
+    lv_obj_set_style_text_color(label_main_icon_, COLOR_VIVID_YELLOW, 0);
     lv_label_set_text(label_main_icon_, FONT_AWESOME_SUN);
     lv_obj_set_style_transform_zoom(label_main_icon_, zoom_icon_main, 0);
     lv_obj_set_style_pad_right(label_main_icon_, 5, 0);
@@ -728,7 +739,7 @@ void WeatherWidget::CreateUI() {
 
     label_main_temp_ = lv_label_create(weather_text_col);
     lv_obj_set_style_text_font(label_main_temp_, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(label_main_temp_, COL_ACCENT_TEAL, 0);
+    lv_obj_set_style_text_color(label_main_temp_, COLOR_VIVID_YELLOW, 0);
     lv_label_set_text(label_main_temp_, "--°C");
     lv_obj_set_style_transform_zoom(label_main_temp_, zoom_std, 0);
 
@@ -752,22 +763,38 @@ void WeatherWidget::CreateUI() {
     lv_obj_set_flex_align(group_details_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_gap(group_details_, static_cast<int>(10 * w_ratio), 0);
 
-    CreateDetailArc(group_details_, screen_width_, &arc_humid_, &label_humid_val_, COL_ACCENT_TEAL);
-    CreateDetailArc(group_details_, screen_width_, &arc_press_, &label_press_val_, COL_ACCENT_PURPLE);
-    CreateDetailArc(group_details_, screen_width_, &arc_wind_, &label_wind_val_, COL_ACCENT_BLUE);
+    CreateDetailArc(group_details_, screen_width_, &arc_humid_, &label_humid_val_, COL_ACCENT_HUMID);
+    CreateDetailArc(group_details_, screen_width_, &arc_press_, &label_press_val_, COL_ACCENT_PRESS);
+    CreateDetailArc(group_details_, screen_width_, &arc_wind_, &label_wind_val_, COL_ACCENT_WIND);
 
-    // Sunrise / Sunset (overlay label, ignore flex layout)
-    label_sunrise_sunset_ = lv_label_create(main_col_);
-    lv_obj_add_flag(label_sunrise_sunset_, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    // Row 6: Sunrise / Sunset (in layout, no overlap)
+    lv_obj_t* row_sun = lv_obj_create(main_col_);
+    lv_obj_set_width(row_sun, LV_SIZE_CONTENT);
+    lv_obj_set_height(row_sun, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(row_sun, lv_color_hex(0x222222), 0);   // Nền xám đậm cho card mặt trời
+    lv_obj_set_style_bg_opa(row_sun, LV_OPA_90, 0);
+    lv_obj_set_style_radius(row_sun, 10, 0);
+    lv_obj_set_style_border_width(row_sun, 0, 0);
+    lv_obj_set_style_pad_top(row_sun, static_cast<int>(4 * h_ratio), 0);
+    lv_obj_set_style_pad_bottom(row_sun, static_cast<int>(4 * h_ratio), 0);
+    lv_obj_set_style_pad_left(row_sun, static_cast<int>(14 * w_ratio), 0);
+    lv_obj_set_style_pad_right(row_sun, static_cast<int>(14 * w_ratio), 0);
+    lv_obj_set_flex_flow(row_sun, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row_sun,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+
+    label_sunrise_sunset_ = lv_label_create(row_sun);
     lv_obj_set_style_text_font(label_sunrise_sunset_, &font_puhui_14_1, 0);
-    lv_obj_set_style_text_color(label_sunrise_sunset_, COL_ACCENT_AMBER, 0);
-    lv_label_set_text(label_sunrise_sunset_, "SR --:--  SS --:--");
+    lv_obj_set_style_text_color(label_sunrise_sunset_, COL_ACCENT_SUN, 0); // Vàng Gold
+    lv_label_set_text(label_sunrise_sunset_, "Mọc --:--   Lặn --:--");
     lv_obj_set_style_transform_zoom(label_sunrise_sunset_, zoom_std, 0);
-    const int sun_gap = std::max(2, static_cast<int>(2 * h_ratio));
-    lv_obj_align_to(label_sunrise_sunset_, group_details_, LV_ALIGN_OUT_TOP_MID, 0, -sun_gap);
+
+    // giữ nguyên cơ chế ẩn/hiện ở UpdateUI()
     lv_obj_add_flag(label_sunrise_sunset_, LV_OBJ_FLAG_HIDDEN);
 
-    // Row 6: Forecast
+    // Row 7: Forecast
     obj_forecast_cont_ = lv_obj_create(main_col_);
     lv_obj_set_width(obj_forecast_cont_, lv_pct(100));
     lv_obj_set_height(obj_forecast_cont_, LV_SIZE_CONTENT);
@@ -793,14 +820,14 @@ void WeatherWidget::CreateUI() {
 
         lv_obj_t* lbl_d = lv_label_create(day_wrap);
         lv_obj_set_style_text_font(lbl_d, &lv_font_montserrat_14, 0);
-        lv_obj_set_style_text_color(lbl_d, COL_TEXT_DIM, 0);
+        lv_obj_set_style_text_color(lbl_d, COL_TEXT_MUTED, 0);
         lv_label_set_text(lbl_d, "-");
         lv_obj_set_style_transform_zoom(lbl_d, zoom_std, 0);
         forecast_day_label_[i] = lbl_d;
 
         lv_obj_t* lbl_icon = lv_label_create(day_wrap);
         lv_obj_set_style_text_font(lbl_icon, &font_awesome_30_4, 0);
-        lv_obj_set_style_text_color(lbl_icon, COL_ACCENT_BLUE, 0);
+        lv_obj_set_style_text_color(lbl_icon, COLOR_VIVID_BLUE, 0);
         lv_label_set_text(lbl_icon, FONT_AWESOME_CLOUD);
         lv_obj_set_style_transform_zoom(lbl_icon, zoom_icon_forecast, 0);
         forecast_icon_label_[i] = lbl_icon;
@@ -813,7 +840,7 @@ void WeatherWidget::CreateUI() {
         forecast_temp_label_[i] = lbl_t;
     }
 
-    // Row 7: dots bottom
+    // Row 8: dots bottom
     CreateDotsRow(main_col_, screen_width_, w_ratio);
 
     // Loading spinner (overlay)
@@ -824,8 +851,8 @@ void WeatherWidget::CreateUI() {
     lv_arc_set_value(loading_spinner_, 75);
     lv_arc_set_bg_angles(loading_spinner_, 0, 360);
     lv_arc_set_rotation(loading_spinner_, 270);
-    lv_obj_set_style_arc_color(loading_spinner_, lv_color_hex(0x2B3348), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(loading_spinner_, COL_ACCENT_BLUE, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(loading_spinner_, lv_color_hex(0x222222), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(loading_spinner_, COLOR_VIVID_CYAN, LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(loading_spinner_, 6, LV_PART_MAIN);
     lv_obj_set_style_arc_width(loading_spinner_, 6, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(loading_spinner_, LV_OPA_TRANSP, LV_PART_KNOB);
@@ -989,7 +1016,7 @@ void WeatherWidget::UpdateUI(const WeatherData& weather) {
         if (label_main_desc_) lv_label_set_text(label_main_desc_, "Không có dữ liệu");
         if (label_main_icon_) {
             lv_label_set_text(label_main_icon_, FONT_AWESOME_CLOUD);
-            lv_obj_set_style_text_color(label_main_icon_, COLOR_GRAY, 0);
+            lv_obj_set_style_text_color(label_main_icon_, COLOR_DIM, 0);
         }
         if (label_sunrise_sunset_) {
             lv_obj_add_flag(label_sunrise_sunset_, LV_OBJ_FLAG_HIDDEN);
@@ -1006,7 +1033,7 @@ void WeatherWidget::UpdateUI(const WeatherData& weather) {
             if (forecast_day_label_[i]) lv_label_set_text(forecast_day_label_[i], "-");
             if (forecast_icon_label_[i]) {
                 lv_label_set_text(forecast_icon_label_[i], FONT_AWESOME_CLOUD);
-                lv_obj_set_style_text_color(forecast_icon_label_[i], COLOR_GRAY, 0);
+                lv_obj_set_style_text_color(forecast_icon_label_[i], COLOR_DIM, 0);
             }
             if (forecast_temp_label_[i]) lv_label_set_text(forecast_temp_label_[i], "--°C");
         }
@@ -1032,14 +1059,14 @@ void WeatherWidget::UpdateUI(const WeatherData& weather) {
     // Sunrise / Sunset (nếu WeatherData có fields sunrise/sunset)
     if (label_sunrise_sunset_) {
         bool shown = false;
-        if constexpr (HasSunriseMember<WeatherData>::value && HasSunsetMember<WeatherData>::value) {
+        if constexpr (HasSunriseLocalMember<WeatherData>::value && HasSunsetLocalMember<WeatherData>::value) {
             int64_t sr = 0;
             int64_t ss = 0;
             const bool ok_sr = TryGetUnixSeconds(weather.sunrise_local, &sr);
             const bool ok_ss = TryGetUnixSeconds(weather.sunset_local, &ss);
 
             if (ok_sr && ok_ss && sr > 0 && ss > 0) {
-                std::string txt = std::string("SR ") + FormatHHMMFromUnix(sr) + "  SS " + FormatHHMMFromUnix(ss);
+                std::string txt = std::string("Mọc: ") + FormatHHMMFromUnix(sr) + "  Lặn: " + FormatHHMMFromUnix(ss);
                 lv_label_set_text(label_sunrise_sunset_, txt.c_str());
                 lv_obj_clear_flag(label_sunrise_sunset_, LV_OBJ_FLAG_HIDDEN);
                 shown = true;
@@ -1063,10 +1090,12 @@ void WeatherWidget::UpdateUI(const WeatherData& weather) {
         // Scale 950..1050 hPa -> 0..100
         const int pct = MapFloatToPercent(static_cast<float>(weather.pressure), 950.f, 1050.f);
         lv_arc_set_value(arc_press_, pct);
-        const int p = static_cast<int>(weather.pressure + 0.5f);
-        const int p2 = ((p % 100) + 100) % 100;
+
+        // Chuyển từ hPa → kPa và lấy 2 chữ số đầu
+        int kpa = static_cast<int>(weather.pressure / 10.0f + 0.5f);  // hPa -> kPa, làm tròn
+        int k2 = (kpa / 10) % 100;  // lấy 2 chữ số đầu
         char buf[8];
-        snprintf(buf, sizeof(buf), "%02d", p2);
+        snprintf(buf, sizeof(buf), "%02d", k2);  // ví dụ: "10kPa"
         lv_label_set_text(label_press_val_, buf);
     }
 
@@ -1095,7 +1124,7 @@ void WeatherWidget::UpdateUI(const WeatherData& weather) {
         } else {
             lv_label_set_text(forecast_day_label_[i], "-");
             lv_label_set_text(forecast_icon_label_[i], FONT_AWESOME_CLOUD);
-            lv_obj_set_style_text_color(forecast_icon_label_[i], COLOR_GRAY, 0);
+            lv_obj_set_style_text_color(forecast_icon_label_[i], COLOR_DIM, 0);
             lv_label_set_text(forecast_temp_label_[i], "--°C");
         }
     }
