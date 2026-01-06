@@ -3,6 +3,7 @@
 
 #include "weather_service.h"
 
+#include <array>
 #include <string>
 
 #include <esp_timer.h>
@@ -29,7 +30,7 @@ private:
 
 #include <lvgl.h>
 
-// Widget thời tiết toàn màn hình 240x320 (LVGL v9)
+// Widget thời tiết toàn màn hình (LVGL v9)
 class WeatherWidget {
 public:
     WeatherWidget(lv_obj_t* parent, WeatherService* weather_service);
@@ -47,49 +48,86 @@ public:
     void UpdateClock();
 
 private:
+    // Services
     WeatherService* weather_service_ = nullptr;
+
+    // Root
     lv_obj_t* parent_ = nullptr;
     lv_obj_t* container_ = nullptr;
+    lv_obj_t* main_col_ = nullptr;
+
+    // Screen size (để scale layout)
+    int screen_width_ = 240;
+    int screen_height_ = 320;
 
     // Header
-    lv_obj_t* title_label_ = nullptr; // "Thành phố — Thứ ... dd/mm"
+    lv_obj_t* label_wifi_icon_ = nullptr;
+    lv_obj_t* label_bat_icon_ = nullptr;
+    lv_obj_t* label_full_date_ = nullptr;
 
-    // Hiện tại
-    lv_obj_t* current_icon_label_ = nullptr;
-    lv_obj_t* temp_label_ = nullptr;
-    lv_obj_t* desc_label_ = nullptr;
+    // Clock (8 glyphs: HH:MM:SS)
+    lv_obj_t* cont_clock_ = nullptr;
+    std::array<lv_obj_t*, 8> lbl_clock_digits_{};
 
-    // Thông tin phụ
-    lv_obj_t* wind_label_ = nullptr;
-    lv_obj_t* pressure_label_ = nullptr;
-    lv_obj_t* humidity_label_ = nullptr;
+    // City
+    lv_obj_t* label_city_ = nullptr;
 
-    // Mặt trời mọc/lặn
-    lv_obj_t* sun_label_ = nullptr;
+    // Main weather
+    lv_obj_t* group_weather_ = nullptr;
+    lv_obj_t* label_main_temp_ = nullptr;
+    lv_obj_t* label_main_icon_ = nullptr;
+    lv_obj_t* label_main_desc_ = nullptr;
 
-    // Dự báo 5 ngày
-    lv_obj_t* forecast_container_ = nullptr;
-    lv_obj_t* forecast_day_label_[5]{};
-    lv_obj_t* forecast_icon_label_[5]{};
-    lv_obj_t* forecast_temp_label_[5]{};
+
+    // Sunrise / Sunset (overlay, ignore flex layout)
+    lv_obj_t* label_sunrise_sunset_ = nullptr;
+    // Details
+    lv_obj_t* group_details_ = nullptr;
+    lv_obj_t* arc_humid_ = nullptr;
+    lv_obj_t* label_humid_val_ = nullptr;
+    lv_obj_t* arc_press_ = nullptr;
+    lv_obj_t* label_press_val_ = nullptr;
+    lv_obj_t* arc_wind_ = nullptr;
+    lv_obj_t* label_wind_val_ = nullptr;
+
+    // Forecast
+    lv_obj_t* obj_forecast_cont_ = nullptr;
+    std::array<lv_obj_t*, 5> forecast_day_label_{};
+    std::array<lv_obj_t*, 5> forecast_icon_label_{};
+    std::array<lv_obj_t*, 5> forecast_temp_label_{};
 
     // Loading
     lv_obj_t* loading_spinner_ = nullptr;
 
-    // Clock
+    // Timer
     esp_timer_handle_t clock_timer_ = nullptr;
-    int last_day_ = -1;
     bool visible_ = false;
+
+    // Cached weather (để vẽ lại khi Show)
+    WeatherData last_weather_{};
+    bool have_last_weather_ = false;
 
     void CreateUI();
     void UpdateUI(const WeatherData& weather);
-    void UpdateHeader();
+    void UpdateHeaderAndClock();
 
     static void ClockTimerCallback(void* arg);
 
-    static std::string GetWeatherIconSymbol(const std::string& icon);
-    static std::string GetThuNgan(int wday);       // T2..CN
-    static std::string GetThuDayDu(int wday);      // "Thứ Hai"...
+    // Helpers
+    static void CreateGradientBars(lv_obj_t* parent, int screen_width, int screen_height);
+    static void CreateDetailArc(lv_obj_t* parent,
+                                int screen_width,
+                                lv_obj_t** arc_out,
+                                lv_obj_t** label_out,
+                                lv_color_t color);
+
+    static const char* GetWifiIconGlyph(int rssi);
+    static const char* GetBatteryIconGlyph(int level, bool charging);
+    static const char* GetWeatherIconGlyph(const std::string& code_or_name);
+
+    static std::string GetThuDayDu(int wday); // "Thứ Hai"...
+    static std::string GetThuNgan(int wday);  // T2..CN
+
     static std::string NormalizeVietnameseForFont(const std::string& input);
 };
 
