@@ -387,22 +387,27 @@ void WeatherWidget::CreateDetailArc(lv_obj_t* parent,
 }
 
 const char* WeatherWidget::GetWifiIconGlyph(int /*rssi*/) {
-    // Font Awesome: WiFi
-    return "\uf1eb";
+    // Fallback WiFi icon (Font Awesome)
+    return FONT_AWESOME_WIFI;
 }
 
 const char* WeatherWidget::GetBatteryIconGlyph(int level, bool charging) {
-    // Font Awesome: bolt / battery-full / battery-half / battery-empty
+    // Match the status bar's battery indicator logic.
+    level = ClampInt(level, 0, 100);
     if (charging) {
-        return "\uf0e7";
+        return FONT_AWESOME_BATTERY_BOLT;
     }
-    if (level >= 80) {
-        return "\uf240";
-    }
-    if (level >= 40) {
-        return "\uf242";
-    }
-    return "\uf244";
+
+    // 0-19% empty, 20-39% quarter, 40-59% half, 60-79% three-quarters, 80-100% full
+    const char* levels[] = {
+        FONT_AWESOME_BATTERY_EMPTY,
+        FONT_AWESOME_BATTERY_QUARTER,
+        FONT_AWESOME_BATTERY_HALF,
+        FONT_AWESOME_BATTERY_THREE_QUARTERS,
+        FONT_AWESOME_BATTERY_FULL,
+        FONT_AWESOME_BATTERY_FULL,
+    };
+    return levels[level / 20];
 }
 
 const char* WeatherWidget::GetWeatherIconGlyph(const std::string& code_or_name) {
@@ -607,7 +612,7 @@ void WeatherWidget::CreateUI() {
     const int zoom_icon_top    = static_cast<int>(zoom_std * 0.60f);  
     
     // --- GIẢM KÍCH THƯỚC ĐỒNG HỒ  ---
-    const int zoom_clock       = static_cast<int>(zoom_std * 0.60f);  // Giảm từ 0.70 xuống 0.60
+    const int zoom_clock       = static_cast<int>(zoom_std * 0.70f);  // Giảm từ 0.70 xuống 0.60
     
     const int zoom_icon_main   = static_cast<int>(zoom_std * 1.35f);  
     const int zoom_icon_forecast = static_cast<int>(zoom_std * 0.75f); 
@@ -658,14 +663,27 @@ void WeatherWidget::CreateUI() {
     label_wifi_icon_ = lv_label_create(row_header);
     lv_obj_set_style_text_font(label_wifi_icon_, &font_awesome_30_4, 0);
     lv_obj_set_style_text_color(label_wifi_icon_, COL_ICON_TOP, 0);
-    lv_label_set_text(label_wifi_icon_, GetWifiIconGlyph(-50));
+    {
+        const char* icon = Board::GetInstance().GetNetworkStateIcon();
+        lv_label_set_text(label_wifi_icon_, icon ? icon : GetWifiIconGlyph(-50));
+    }
     lv_obj_align(label_wifi_icon_, LV_ALIGN_LEFT_MID, icon_pad, 0);
     lv_obj_set_style_transform_zoom(label_wifi_icon_, zoom_icon_top, 0);
 
     label_bat_icon_ = lv_label_create(row_header);
     lv_obj_set_style_text_font(label_bat_icon_, &font_awesome_30_4, 0);
     lv_obj_set_style_text_color(label_bat_icon_, COL_ICON_TOP, 0);
-    lv_label_set_text(label_bat_icon_, GetBatteryIconGlyph(80, false));
+    {
+        int level = 0;
+        bool charging = false;
+        bool discharging = false;
+        if (Board::GetInstance().GetBatteryLevel(level, charging, discharging)) {
+            lv_label_set_text(label_bat_icon_, GetBatteryIconGlyph(level, charging));
+        } else {
+            // Avoid showing misleading "fake" battery status when unavailable.
+            lv_label_set_text(label_bat_icon_, "");
+        }
+    }
     lv_obj_align(label_bat_icon_, LV_ALIGN_RIGHT_MID, -icon_pad, 0);
     lv_obj_set_style_transform_zoom(label_bat_icon_, zoom_icon_top, 0);
 
@@ -994,12 +1012,27 @@ void WeatherWidget::UpdateHeaderAndClock() {
         return;
     }
 
-    // Mặc định: placeholders (có thể nối thêm battery/wifi thực tế sau)
-    const int wifi_rssi = -50;
-    const int battery_level = 80;
-    const bool charging = false;
-    lv_label_set_text(label_wifi_icon_, GetWifiIconGlyph(wifi_rssi));
-    lv_label_set_text(label_bat_icon_, GetBatteryIconGlyph(battery_level, charging));
+    // Use the same battery/network sources as the status bar.
+    {
+        const char* icon = Board::GetInstance().GetNetworkStateIcon();
+        if (label_wifi_icon_) {
+            lv_label_set_text(label_wifi_icon_, icon ? icon : GetWifiIconGlyph(-50));
+        }
+    }
+
+    {
+        int level = 0;
+        bool charging = false;
+        bool discharging = false;
+        if (label_bat_icon_) {
+            if (Board::GetInstance().GetBatteryLevel(level, charging, discharging)) {
+                lv_label_set_text(label_bat_icon_, GetBatteryIconGlyph(level, charging));
+            } else {
+                // Avoid misleading battery info on boards that do not expose battery status.
+                lv_label_set_text(label_bat_icon_, "");
+            }
+        }
+    }
 
     time_t now = time(nullptr);
     tm* tm_local = localtime(&now);
@@ -1122,17 +1155,14 @@ void WeatherWidget::UpdateUI(const WeatherData& weather) {
         lv_label_set_text(label_humid_val_, buf);
     }
 
-    if (arc_press_ && label_press_val_) {
-        // Scale 950..1050 hPa -> 0..100
-        const int pct = MapFloatToPercent(static_cast<float>(weather.pressure), 950.f, 1050.f);
-        lv_arc_set_value(arc_press_, pct);
-
-        // Chuyển từ hPa → kPa và lấy 2 chữ số đầu
-        int kpa = static_cast<int>(weather.pressure / 10.0f + 0.5f);  // hPa -> kPa, làm tròn
-        int k2 = (kpa / 10) % 100;  // lấy 2 chữ số đầu
-        char buf[8];
-        snprintf(buf, sizeof(buf), "%02d", k2);  // ví dụ: "10kPa"
-        lv_label_set_text(label_press_val_, buf);
+	if (arc_press_ && label_press_val_) {
+		// Scale UV 0..11+ -> 0..100
+		const float uv = (weather.uv_index < 0.0f) ? 0.0f : weather.uv_index;
+		const int pct = MapFloatToPercent(uv, 0.f, 11.f);
+		lv_arc_set_value(arc_press_, pct);
+		char buf[8];
+		snprintf(buf, sizeof(buf), "%.1f", uv);
+		lv_label_set_text(label_press_val_, buf);
     }
 
     if (arc_wind_ && label_wind_val_) {

@@ -6,6 +6,14 @@
 #ifndef WEATHER_SERVICE_H
 #define WEATHER_SERVICE_H
 
+// API key mặc định (hardcode trong firmware)
+// - Ưu tiên lấy từ NVS (wifi.weather_api_key / weather.api_key)
+// - Nếu NVS không có/đang trống thì fallback sang key này
+#ifndef OPEN_WEATHERMAP_API_KEY_DEFAULT
+#define OPEN_WEATHERMAP_API_KEY_DEFAULT "ae8d3c2fda691593ce3e84472ef25784"
+#endif
+
+
 // 0: dùng IP geolocation (mặc định)
 // 1: dùng vị trí tĩnh (phục vụ debug/offline)
 #ifndef WEATHER_USE_STATIC_LOCATION
@@ -39,7 +47,8 @@ struct WeatherData {
     float humidity = 0.0f;          // %
     float wind_speed = 0.0f;        // m/s
     int wind_direction = 0;         // degrees
-    float pressure = 0.0f;          // hPa
+    float pressure = 0.0f;          // kPa
+	float uv_index = 0.0f;			// UV
     std::string description;        // mô tả ngắn tiếng Việt ("Trời nắng", "Có mây", ...)
     std::string icon;               // icon key (mapped by UI)
 
@@ -173,7 +182,7 @@ private:
     bool HttpGetToString(const char* url, std::string& out_body, int timeout_ms, int buffer_size);
 
     std::string MapOpenWeatherIcon(const std::string& ow_icon, int weather_id);
-    std::string MapOpenWeatherDescriptionShortVi(int weather_id, const std::string& ow_desc);
+	std::string MapOpenWeatherDescriptionShortVi(int weather_id, const std::string& ow_desc, bool is_night);
 
     // Time sync
     void InitializeSntp();

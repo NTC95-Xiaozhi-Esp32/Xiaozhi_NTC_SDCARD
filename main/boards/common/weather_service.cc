@@ -355,10 +355,17 @@ bool WeatherService::LoadConfigFromNvs() {
         has_explicit_city_config_ = !configured_city_.empty();
     }
 
-    if (api_key_.empty()) {
-        ESP_LOGW(TAG, "NVS: khóa API thời tiết đang trống (wifi.weather_api_key / weather.api_key)");
-        return false;
-    }
+    // Ưu tiên lấy từ NVS. Nếu NVS không có/đang trống thì fallback sang key hardcode.
+	if (api_key_.empty()) {
+		api_key_ = TrimAscii(std::string(OPEN_WEATHERMAP_API_KEY_DEFAULT));
+		if (!api_key_.empty()) {
+			ESP_LOGW(TAG, "NVS: không có khóa API thời tiết, dùng OPEN_WEATHERMAP_API_KEY_DEFAULT (len=%u)",
+					 static_cast<unsigned>(api_key_.size()));
+		} else {
+			ESP_LOGW(TAG, "NVS: khóa API thời tiết đang trống (wifi.weather_api_key / weather.api_key) và OPEN_WEATHERMAP_API_KEY_DEFAULT rỗng");
+			return false;
+		}
+	}
 
     if (has_explicit_city_config_) {
         ESP_LOGI(TAG, "NVS: đã nạp cấu hình thời tiết (api_key_len=%u, city=\"%s\")",
@@ -758,6 +765,15 @@ bool WeatherService::ParseCurrentResponse(const std::string& response, WeatherDa
     out.temperature = static_cast<float>(temp->valuedouble);
     out.humidity = (humidity && cJSON_IsNumber(humidity)) ? static_cast<float>(humidity->valuedouble) : 0.0f;
     out.pressure = (pressure && cJSON_IsNumber(pressure)) ? static_cast<float>(pressure->valuedouble) : 0.0f;
+	
+	// UV index 
+    cJSON* uv = cJSON_GetObjectItem(root, "uvi");
+    if (!uv) uv = cJSON_GetObjectItem(root, "uv");
+    if (!uv) uv = cJSON_GetObjectItem(root, "uv_index");
+    if (!uv && main) uv = cJSON_GetObjectItem(main, "uvi");
+    if (!uv && main) uv = cJSON_GetObjectItem(main, "uv");
+    if (!uv && main) uv = cJSON_GetObjectItem(main, "uv_index");
+    out.uv_index = (uv && cJSON_IsNumber(uv)) ? static_cast<float>(uv->valuedouble) : 0.0f;
 
     // wind
     cJSON* wind = cJSON_GetObjectItem(root, "wind");
@@ -806,8 +822,19 @@ bool WeatherService::ParseCurrentResponse(const std::string& response, WeatherDa
         }
     }
 
-    out.description = MapOpenWeatherDescriptionShortVi(weather_id, ow_desc);
-    out.icon = MapOpenWeatherIcon(ow_icon, weather_id);
+    bool is_night = false;
+
+	// Ưu tiên dùng icon 01d/01n từ OpenWeather (chuẩn nhất)
+	if (ow_icon.size() == 3 && (ow_icon[2] == 'd' || ow_icon[2] == 'n')) {
+		is_night = (ow_icon[2] == 'n');
+	} else if (out.sunrise_local > 0 && out.sunset_local > 0) {
+		// Fallback: so sánh theo sunrise/sunset nếu icon thiếu
+		const int64_t now_local = static_cast<int64_t>(time(nullptr)) + tz_offset;
+		is_night = (now_local < out.sunrise_local || now_local > out.sunset_local);
+	}
+
+	out.description = MapOpenWeatherDescriptionShortVi(weather_id, ow_desc, is_night);
+	out.icon = MapOpenWeatherIcon(ow_icon, weather_id);
 
     // Đồng bộ city + timezone về location cache (tốt cho UI và cho lần forecast tiếp theo).
     if (mutex_) xSemaphoreTake(mutex_, portMAX_DELAY);
@@ -956,8 +983,8 @@ std::string WeatherService::MapOpenWeatherIcon(const std::string& ow_icon, int w
     return "cloud";
 }
 
-std::string WeatherService::MapOpenWeatherDescriptionShortVi(int weather_id, const std::string& ow_desc) {
-    if (weather_id == 800) return "Trời nắng";
+std::string WeatherService::MapOpenWeatherDescriptionShortVi(int weather_id, const std::string& ow_desc, bool is_night) {
+    if (weather_id == 800) return is_night ? "Trời quang" : "Trời nắng";
     if (weather_id >= 801 && weather_id <= 802) return "Có mây";
     if (weather_id >= 803 && weather_id <= 804) return "Nhiều mây";
 
@@ -969,11 +996,8 @@ std::string WeatherService::MapOpenWeatherDescriptionShortVi(int weather_id, con
 
     if (!ow_desc.empty()) {
         std::string s = ow_desc;
-        if (!s.empty()) {
-            // viết hoa chữ cái đầu (ASCII)
-            unsigned char c = static_cast<unsigned char>(s[0]);
-            if (c >= 'a' && c <= 'z') s[0] = static_cast<char>(c - 32);
-        }
+        unsigned char c = static_cast<unsigned char>(s[0]);
+        if (c >= 'a' && c <= 'z') s[0] = static_cast<char>(c - 32);
         return s;
     }
     return "Thời tiết";
