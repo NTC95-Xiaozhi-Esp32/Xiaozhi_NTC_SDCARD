@@ -16,6 +16,7 @@
 // Optional weather overlay (declared elsewhere)
 class WeatherService;
 class WeatherWidget;
+class LunarWidget;
 
 #define PREVIEW_IMAGE_DURATION_MS 5000
 
@@ -62,6 +63,10 @@ protected:
     // --- Optional Weather widget overlay (full-screen overlay on idle) ---
     WeatherWidget* weather_widget_ = nullptr;
     bool weather_widget_visible_ = false;
+
+    // --- Optional Lunar widget overlay (full-screen overlay on idle) ---
+    LunarWidget* lunar_widget_ = nullptr;
+    bool lunar_widget_visible_ = false;
 
     void InitializeLcdThemes();
     void SetupUI();
@@ -176,6 +181,13 @@ public:
     virtual void HideWeatherWidget() override;
     virtual void ToggleWeatherWidget() override;
     virtual void UpdateWeatherWidget() override;
+
+    // Lunar widget overlay (optional)
+    virtual void InitLunarWidget() override;
+    virtual void ShowLunarWidget() override;
+    virtual void HideLunarWidget() override;
+    virtual void ToggleLunarWidget() override;
+    virtual void UpdateLunarWidget() override;
 
     // Karaoke UI
     virtual void UpdateKaraokeLine(const char* cur, const char* next) override;

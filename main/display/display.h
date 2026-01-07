@@ -77,6 +77,14 @@ public:
     virtual void HideWeatherWidget() {}
     virtual void ToggleWeatherWidget() {}
     virtual void UpdateWeatherWidget() {}
+
+    // --- Lunar overlay (default no-op) ---
+    // Full-screen overlay similar to WeatherWidget, toggled by Application while idle.
+    virtual void InitLunarWidget() {}
+    virtual void ShowLunarWidget() {}
+    virtual void HideLunarWidget() {}
+    virtual void ToggleLunarWidget() {}
+    virtual void UpdateLunarWidget() {}
 	
 	// --- Karaoke UI (default no-op) ---
     virtual void UpdateKaraokeLine(const char* cur, const char* next) {}

@@ -59,6 +59,12 @@ Application::Application() {
 }
 
 Application::~Application() {
+    // Stop idle overlay timer (weather <-> lunar rotation)
+    if (idle_overlay_timer_ != nullptr) {
+        esp_timer_stop(idle_overlay_timer_);
+        esp_timer_delete(idle_overlay_timer_);
+        idle_overlay_timer_ = nullptr;
+    }
     if (clock_timer_handle_ != nullptr) {
         esp_timer_stop(clock_timer_handle_);
         esp_timer_delete(clock_timer_handle_);
@@ -308,6 +314,17 @@ void Application::HandleNetworkConnectedEvent() {
 void Application::HandleNetworkDisconnectedEvent() {
     network_connected_ = false;
     StopWeatherSubsystem();
+
+    // If we are idle, fallback to lunar overlay immediately.
+    if (GetDeviceState() == kDeviceStateIdle) {
+        auto display = Board::GetInstance().GetDisplay();
+        if (display) {
+            display->InitLunarWidget();
+            display->ShowLunarWidget();
+            display->HideWeatherWidget();
+            idle_overlay_show_weather_ = false;
+        }
+    }
 
     // Close current conversation when network disconnected
     auto state = GetDeviceState();
@@ -926,17 +943,46 @@ void Application::OnStateChanged(DeviceState old_state, DeviceState new_state) {
             display->ClearQRCode();
         }
 
-        // Hide weather overlay when leaving idle.
+        // Stop overlay rotation and hide overlays when leaving idle.
         Schedule([this]() {
+            StopIdleOverlayRotation();
             if (auto display = Board::GetInstance().GetDisplay()) {
                 display->HideWeatherWidget();
+                display->HideLunarWidget();
             }
         });
     }
 
     // Show weather overlay when entering idle (if enabled/available).
     if (new_state == kDeviceStateIdle && old_state != kDeviceStateIdle) {
-        Schedule([this]() { StartWeatherSubsystemIfReady(); });
+        Schedule([this]() {
+            auto display = Board::GetInstance().GetDisplay();
+            if (!display) {
+                return;
+            }
+
+            // Always ensure Lunar widget exists (works offline)
+            display->InitLunarWidget();
+
+            // Best-effort start weather subsystem (may no-op if offline)
+            StartWeatherSubsystemIfReady();
+
+            const bool weather_ready = network_connected_ && (weather_service_ != nullptr);
+            if (weather_ready) {
+                // Default: start on weather (requested)
+                idle_overlay_show_weather_ = true;
+                display->ShowWeatherWidget();
+                display->HideLunarWidget();
+            } else {
+                // Offline: stay on lunar
+                idle_overlay_show_weather_ = false;
+                display->ShowLunarWidget();
+                display->HideWeatherWidget();
+            }
+
+            // Start 3-minute rotation timer
+            StartIdleOverlayRotation();
+        });
     }
 }
 
@@ -1025,6 +1071,74 @@ void Application::StopWeatherSubsystem() {
     if (weather_service_) {
         weather_service_->Stop();
     }
+}
+
+// -----------------------------------------------------------------------------
+// Idle overlay rotation (Weather <-> Lunar)
+// -----------------------------------------------------------------------------
+
+void Application::StartIdleOverlayRotation() {
+    if (idle_overlay_timer_ == nullptr) {
+        const esp_timer_create_args_t args = {
+            .callback = &Application::IdleOverlayTimerCallback,
+            .arg = this,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "idle_overlay",
+            .skip_unhandled_events = true
+        };
+        esp_err_t err = esp_timer_create(&args, &idle_overlay_timer_);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to create idle overlay timer: %d", (int)err);
+            idle_overlay_timer_ = nullptr;
+            return;
+        }
+    }
+
+    // 3 minutes
+	esp_timer_stop(idle_overlay_timer_);
+	esp_timer_start_periodic(idle_overlay_timer_, 3ULL * 60ULL * 1000000ULL);
+}
+
+void Application::StopIdleOverlayRotation() {
+    if (idle_overlay_timer_ != nullptr) {
+        esp_timer_stop(idle_overlay_timer_);
+    }
+}
+
+void Application::IdleOverlayTimerCallback(void* arg) {
+    auto* app = static_cast<Application*>(arg);
+    if (!app) {
+        return;
+    }
+    // Always hop back to main task for UI updates
+    app->Schedule([app]() {
+        if (app->GetDeviceState() != kDeviceStateIdle) {
+            return;
+        }
+
+        auto display = Board::GetInstance().GetDisplay();
+        if (!display) {
+            return;
+        }
+
+        const bool weather_ready = app->network_connected_ && (app->weather_service_ != nullptr);
+        if (!weather_ready) {
+            // Default behavior requested: stick to Lunar if weather is not available.
+            display->ShowLunarWidget();
+            display->HideWeatherWidget();
+            app->idle_overlay_show_weather_ = false;
+            return;
+        }
+
+        app->idle_overlay_show_weather_ = !app->idle_overlay_show_weather_;
+        if (app->idle_overlay_show_weather_) {
+            display->ShowWeatherWidget();
+            display->HideLunarWidget();
+        } else {
+            display->ShowLunarWidget();
+            display->HideWeatherWidget();
+        }
+    });
 }
 
 void Application::Reboot() {

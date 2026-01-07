@@ -29,6 +29,7 @@
 // Optional weather overlay
 #include "weather_service.h"
 #include "weather_widget.h"
+#include "lunar_widget.h"
 
 // ============================================================
 //  SD MUSIC PLAYER ACCESS (LVGL 9.x)
@@ -425,6 +426,13 @@ LcdDisplay::~LcdDisplay() {
         delete weather_widget_;
         weather_widget_ = nullptr;
         weather_widget_visible_ = false;
+    }
+
+    // Clean up optional lunar widget overlay
+    if (lunar_widget_ != nullptr) {
+        delete lunar_widget_;
+        lunar_widget_ = nullptr;
+        lunar_widget_visible_ = false;
     }
     
     // Clean up GIF controller
@@ -2536,5 +2544,69 @@ void LcdDisplay::UpdateWeatherWidget() {
         DisplayLockGuard lock(this);
         // WeatherWidget::Show() refreshes UI but also keeps the clock timer running.
         weather_widget_->Show();
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Lunar widget overlay (optional)
+// -----------------------------------------------------------------------------
+
+void LcdDisplay::InitLunarWidget() {
+    if (lunar_widget_ != nullptr) {
+        ESP_LOGW(TAG, "Lunar widget already initialized");
+        return;
+    }
+
+    DisplayLockGuard lock(this);
+    lv_obj_t* screen = lv_screen_active();
+    if (screen == nullptr) {
+        ESP_LOGE(TAG, "Failed to get active screen");
+        return;
+    }
+
+    lunar_widget_ = new LunarWidget(screen);
+    lunar_widget_visible_ = false;
+    ESP_LOGI(TAG, "Lunar widget initialized successfully");
+}
+
+void LcdDisplay::ShowLunarWidget() {
+    if (lunar_widget_ == nullptr) {
+        ESP_LOGW(TAG, "Lunar widget not initialized");
+        return;
+    }
+    DisplayLockGuard lock(this);
+    lunar_widget_->Show();
+    lunar_widget_visible_ = true;
+}
+
+void LcdDisplay::HideLunarWidget() {
+    if (lunar_widget_ == nullptr) {
+        ESP_LOGW(TAG, "Lunar widget not initialized");
+        return;
+    }
+    DisplayLockGuard lock(this);
+    lunar_widget_->Hide();
+    lunar_widget_visible_ = false;
+}
+
+void LcdDisplay::ToggleLunarWidget() {
+    if (lunar_widget_ == nullptr) {
+        ESP_LOGW(TAG, "Lunar widget not initialized");
+        return;
+    }
+    if (lunar_widget_visible_) {
+        HideLunarWidget();
+    } else {
+        ShowLunarWidget();
+    }
+}
+
+void LcdDisplay::UpdateLunarWidget() {
+    if (lunar_widget_ == nullptr) {
+        return;
+    }
+    if (lunar_widget_visible_) {
+        DisplayLockGuard lock(this);
+        lunar_widget_->Show();
     }
 }

@@ -149,6 +149,10 @@ private:
     bool network_connected_ = false;
     std::unique_ptr<WeatherService> weather_service_;
 
+    // --- Idle overlay rotation (Weather <-> Lunar) ---
+    esp_timer_handle_t idle_overlay_timer_ = nullptr;
+    bool idle_overlay_show_weather_ = true;
+
     bool has_server_time_ = false;
     bool aborted_ = false;
     bool assets_version_checked_ = false;
@@ -180,6 +184,11 @@ private:
     // Weather subsystem helpers
     void StartWeatherSubsystemIfReady();
     void StopWeatherSubsystem();
+
+    // Idle overlay rotation helpers
+    void StartIdleOverlayRotation();
+    void StopIdleOverlayRotation();
+    static void IdleOverlayTimerCallback(void* arg);
     
     // State change handler called by state machine
     void OnStateChanged(DeviceState old_state, DeviceState new_state);
