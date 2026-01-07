@@ -1,172 +1,291 @@
-# An MCP-based Chatbot
+<!--
+README - Tính năng Media & Tiện ích (Offline/Online/Radio/Lịch âm/Thời tiết)
+Repo: Xiaozhi_NTC_SDCARD-main_integrated_lunar_weather
+-->
 
-(English | [中文](README_zh.md) | [日本語](README_ja.md))
+<div align="center">
 
-## Introduction
+# XiaoZhi NTC + SD Card  
+## Media Offline/Online • Internet Radio • Lịch âm • Thời tiết
 
-👉 [Human: Give AI a camera vs AI: Instantly finds out the owner hasn't washed hair for three days【bilibili】](https://www.bilibili.com/video/BV1bpjgzKEhd/)
+[![ESP32](https://img.shields.io/badge/Target-ESP32-000000?style=for-the-badge)](./)
+[![SD Card](https://img.shields.io/badge/Storage-SD%20Card-000000?style=for-the-badge)](./)
+[![OpenWeatherMap](https://img.shields.io/badge/Weather-OpenWeatherMap-000000?style=for-the-badge)](./)
+[![Vietnamese UI](https://img.shields.io/badge/UI-Ti%E1%BA%BFng%20Vi%E1%BB%87t-000000?style=for-the-badge)](./)
 
-👉 [Handcraft your AI girlfriend, beginner's guide【bilibili】](https://www.bilibili.com/video/BV1XnmFYLEJN/)
-
-As a voice interaction entry, the XiaoZhi AI chatbot leverages the AI capabilities of large models like Qwen / DeepSeek, and achieves multi-terminal control via the MCP protocol.
-
-<img src="docs/mcp-based-graph.jpg" alt="Control everything via MCP" width="320">
-
-## Version Notes
-
-The current v2 version is incompatible with the v1 partition table, so it is not possible to upgrade from v1 to v2 via OTA. For partition table details, see [partitions/v2/README.md](partitions/v2/README.md).
-
-All hardware running v1 can be upgraded to v2 by manually flashing the firmware.
-
-The stable version of v1 is 1.9.2. You can switch to v1 by running `git checkout v1`. The v1 branch will be maintained until February 2026.
-
-### Features Implemented
-
-- Wi-Fi / ML307 Cat.1 4G
-- Offline voice wake-up [ESP-SR](https://github.com/espressif/esp-sr)
-- Supports two communication protocols ([Websocket](docs/websocket.md) or MQTT+UDP)
-- Uses OPUS audio codec
-- Voice interaction based on streaming ASR + LLM + TTS architecture
-- Speaker recognition, identifies the current speaker [3D Speaker](https://github.com/modelscope/3D-Speaker)
-- OLED / LCD display, supports emoji display
-- Battery display and power management
-- Multi-language support (Chinese, English, Japanese)
-- Supports ESP32-C3, ESP32-S3, ESP32-P4 chip platforms
-- Device-side MCP for device control (Speaker, LED, Servo, GPIO, etc.)
-- Cloud-side MCP to extend large model capabilities (smart home control, PC desktop operation, knowledge search, email, etc.)
-- Customizable wake words, fonts, emojis, and chat backgrounds with online web-based editing ([Custom Assets Generator](https://github.com/78/xiaozhi-assets-generator))
-
-## Hardware
-
-### Breadboard DIY Practice
-
-See the Feishu document tutorial:
-
-👉 ["XiaoZhi AI Chatbot Encyclopedia"](https://ccnphfhqs21z.feishu.cn/wiki/F5krwD16viZoF0kKkvDcrZNYnhb?from=from_copylink)
-
-Breadboard demo:
-
-![Breadboard Demo](docs/v1/wiring2.jpg)
-
-### Supports 70+ Open Source Hardware (Partial List)
-
-- <a href="https://oshwhub.com/li-chuang-kai-fa-ban/li-chuang-shi-zhan-pai-esp32-s3-kai-fa-ban" target="_blank" title="LiChuang ESP32-S3 Development Board">LiChuang ESP32-S3 Development Board</a>
-- <a href="https://github.com/espressif/esp-box" target="_blank" title="Espressif ESP32-S3-BOX3">Espressif ESP32-S3-BOX3</a>
-- <a href="https://docs.m5stack.com/zh_CN/core/CoreS3" target="_blank" title="M5Stack CoreS3">M5Stack CoreS3</a>
-- <a href="https://docs.m5stack.com/en/atom/Atomic%20Echo%20Base" target="_blank" title="AtomS3R + Echo Base">M5Stack AtomS3R + Echo Base</a>
-- <a href="https://gf.bilibili.com/item/detail/1108782064" target="_blank" title="Magic Button 2.4">Magic Button 2.4</a>
-- <a href="https://www.waveshare.net/shop/ESP32-S3-Touch-AMOLED-1.8.htm" target="_blank" title="Waveshare ESP32-S3-Touch-AMOLED-1.8">Waveshare ESP32-S3-Touch-AMOLED-1.8</a>
-- <a href="https://github.com/Xinyuan-LilyGO/T-Circle-S3" target="_blank" title="LILYGO T-Circle-S3">LILYGO T-Circle-S3</a>
-- <a href="https://oshwhub.com/tenclass01/xmini_c3" target="_blank" title="XiaGe Mini C3">XiaGe Mini C3</a>
-- <a href="https://oshwhub.com/movecall/cuican-ai-pendant-lights-up-y" target="_blank" title="Movecall CuiCan ESP32S3">CuiCan AI Pendant</a>
-- <a href="https://github.com/WMnologo/xingzhi-ai" target="_blank" title="WMnologo-Xingzhi-1.54">WMnologo-Xingzhi-1.54TFT</a>
-- <a href="https://www.seeedstudio.com/SenseCAP-Watcher-W1-A-p-5979.html" target="_blank" title="SenseCAP Watcher">SenseCAP Watcher</a>
-- <a href="https://www.bilibili.com/video/BV1BHJtz6E2S/" target="_blank" title="ESP-HI Low Cost Robot Dog">ESP-HI Low Cost Robot Dog</a>
-
-<div style="display: flex; justify-content: space-between;">
-  <a href="docs/v1/lichuang-s3.jpg" target="_blank" title="LiChuang ESP32-S3 Development Board">
-    <img src="docs/v1/lichuang-s3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/espbox3.jpg" target="_blank" title="Espressif ESP32-S3-BOX3">
-    <img src="docs/v1/espbox3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/m5cores3.jpg" target="_blank" title="M5Stack CoreS3">
-    <img src="docs/v1/m5cores3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/atoms3r.jpg" target="_blank" title="AtomS3R + Echo Base">
-    <img src="docs/v1/atoms3r.jpg" width="240" />
-  </a>
-  <a href="docs/v1/magiclick.jpg" target="_blank" title="Magic Button 2.4">
-    <img src="docs/v1/magiclick.jpg" width="240" />
-  </a>
-  <a href="docs/v1/waveshare.jpg" target="_blank" title="Waveshare ESP32-S3-Touch-AMOLED-1.8">
-    <img src="docs/v1/waveshare.jpg" width="240" />
-  </a>
-  <a href="docs/v1/lilygo-t-circle-s3.jpg" target="_blank" title="LILYGO T-Circle-S3">
-    <img src="docs/v1/lilygo-t-circle-s3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/xmini-c3.jpg" target="_blank" title="XiaGe Mini C3">
-    <img src="docs/v1/xmini-c3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/movecall-cuican-esp32s3.jpg" target="_blank" title="CuiCan">
-    <img src="docs/v1/movecall-cuican-esp32s3.jpg" width="240" />
-  </a>
-  <a href="docs/v1/wmnologo_xingzhi_1.54.jpg" target="_blank" title="WMnologo-Xingzhi-1.54">
-    <img src="docs/v1/wmnologo_xingzhi_1.54.jpg" width="240" />
-  </a>
-  <a href="docs/v1/sensecap_watcher.jpg" target="_blank" title="SenseCAP Watcher">
-    <img src="docs/v1/sensecap_watcher.jpg" width="240" />
-  </a>
-  <a href="docs/v1/esp-hi.jpg" target="_blank" title="ESP-HI Low Cost Robot Dog">
-    <img src="docs/v1/esp-hi.jpg" width="240" />
-  </a>
 </div>
 
-## Software
+---
 
-### Firmware Flashing
+## Mục tiêu tài liệu
+Tài liệu này mô tả **các tính năng media + tiện ích** đã có trong source hiện tại:
 
-For beginners, it is recommended to use the firmware that can be flashed without setting up a development environment.
+- 🎵 **Nghe nhạc Offline** từ SD (playlist.json, tìm kiếm, shuffle/repeat, genre)
+- 🌐 **Nghe nhạc Online** (stream + tự cache MP3 vào SD)
+- 📻 **Internet Radio** (AAC)
+- 🌙 **Lịch âm Việt Nam** (offline, Can–Chi)
+- 🌦️ **Thời tiết** (OpenWeatherMap + auto-location theo IP)
+- 🖥️ **Idle overlay**: tự luân phiên *Thời tiết ↔ Lịch âm* (fallback hợp lý khi offline)
 
-The firmware connects to the official [xiaozhi.me](https://xiaozhi.me) server by default. Personal users can register an account to use the Qwen real-time model for free.
+> Gợi ý: Nếu bạn muốn README tổng quan build/flash, hãy xem README gốc của dự án. File này chỉ tập trung vào 5 nhóm tính năng trên.
 
-👉 [Beginner's Firmware Flashing Guide](https://ccnphfhqs21z.feishu.cn/wiki/Zpz4wXBtdimBrLk25WdcXzxcnNS)
+---
 
-### Development Environment
+## 1) Bảng tính năng (tóm tắt nhanh)
 
-- Cursor or VSCode
-- Install ESP-IDF plugin, select SDK version 5.4 or above
-- Linux is better than Windows for faster compilation and fewer driver issues
-- This project uses Google C++ code style, please ensure compliance when submitting code
+| Nhóm | Tính năng | Offline | Online | Ghi chú kỹ thuật |
+|---|---|:--:|:--:|---|
+| 🎵 SD Music | Phát nhạc từ SD | ✅ | — | Ưu tiên đọc `playlist.json`, hỏng/thiếu mới quét SD |
+| 🎵 SD Music | Tìm kiếm / duyệt thư mục / phát theo index | ✅ | — | Hỗ trợ thao tác qua MCP tools `self.sdmusic.*` |
+| 🎵 SD Music | Shuffle / Repeat | ✅ | — | Repeat: none / one / all |
+| 🎵 SD Music | Genre (ID3) | ✅ | — | Có bảng genre ID3v1 + chuẩn hoá TCON (ID3v2) |
+| 🌐 Online Music | Phát online | — | ✅ | Tool `self.music.play_song` |
+| 🌐 Online Music | Auto-cache MP3 vào SD | ✅* | ✅ | Cache vào `/sdcard/music` sau khi nghe tối thiểu 15 giây |
+| 📻 Radio | Phát radio Internet | — | ✅ | AAC format only; có danh sách kênh VN dựng sẵn + phát theo URL |
+| 🌙 Lịch âm | Solar ↔ Lunar + Can–Chi | ✅ | — | Timezone mặc định `UTC+7` (`LUNAR_TZ_HOURS`) |
+| 🌦️ Thời tiết | Hiện tại + dự báo 5 ngày | — | ✅ | OWM; auto-location theo IP (ipwho.is → ipwhois.app → ipapi.co) |
+| 🖥️ Idle overlay | Luân phiên Weather/Lunar | ✅ | ✅ | 3 phút/lần; không có weather → giữ Lunar |
 
-### Developer Documentation
+\* Auto-cache chỉ ghi vào SD, nhưng nguồn dữ liệu là online.
 
-- [Custom Board Guide](docs/custom-board.md) - Learn how to create custom boards for XiaoZhi AI
-- [MCP Protocol IoT Control Usage](docs/mcp-usage.md) - Learn how to control IoT devices via MCP protocol
-- [MCP Protocol Interaction Flow](docs/mcp-protocol.md) - Device-side MCP protocol implementation
-- [MQTT + UDP Hybrid Communication Protocol Document](docs/mqtt-udp.md)
-- [A detailed WebSocket communication protocol document](docs/websocket.md)
+---
 
-## Large Model Configuration
+## 2) 🎵 Nghe nhạc OFFLINE (SD Card)
 
-If you already have a XiaoZhi AI chatbot device and have connected to the official server, you can log in to the [xiaozhi.me](https://xiaozhi.me) console for configuration.
+### 2.1 Trải nghiệm người dùng
+- Phát nhạc trực tiếp từ SD, phù hợp khi:
+  - Không có mạng
+  - Muốn phát “tủ nhạc” cố định, độ trễ thấp
+- Hỗ trợ:
+  - Duyệt thư mục / liệt kê bài
+  - Tìm theo từ khoá
+  - Phát theo index
+  - Shuffle / Repeat
+  - Playlist theo **thể loại (genre)**
 
-👉 [Backend Operation Video Tutorial (Old Interface)](https://www.bilibili.com/video/BV1jUCUY2EKM/)
+### 2.2 playlist.json (tăng tốc khởi động & duyệt thư viện)
+Cơ chế đọc playlist được tối ưu cho thiết bị embedded:
 
-## Related Open Source Projects
+- Mặc định dùng:  
+  `/<SD_MOUNT>/playlist.json`  
+  (hoặc theo thư mục khi bạn đặt root khác)
+- Luồng xử lý:
+  1) Nếu `playlist.json` **có nội dung hợp lệ** → chỉ đọc file (nhanh)
+  2) Nếu **thiếu/hỏng/rỗng** → quét SD để rebuild và lưu lại `playlist.json`
 
-For server deployment on personal computers, refer to the following open-source projects:
+> Gợi ý vận hành: khi bạn copy thêm/xoá nhạc trên SD, có thể gọi tool `self.sdmusic.reload` để quét lại thư viện.
 
-- [xinnan-tech/xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server) Python server
-- [joey-zhou/xiaozhi-esp32-server-java](https://github.com/joey-zhou/xiaozhi-esp32-server-java) Java server
-- [AnimeAIChat/xiaozhi-server-go](https://github.com/AnimeAIChat/xiaozhi-server-go) Golang server
+### 2.3 Metadata & Genre (ID3)
+- Có bảng tra **genre ID3v1**
+- Có cơ chế đọc ID3v2 ở chế độ “an toàn” (tối giản), tập trung các frame thông dụng như:
+  - Title/Artist/Album/Year/Genre  
+- Genre được chuẩn hoá để hiển thị gọn và thống nhất.
 
-Other client projects using the XiaoZhi communication protocol:
+---
 
-- [huangjunsen0406/py-xiaozhi](https://github.com/huangjunsen0406/py-xiaozhi) Python client
-- [TOM88812/xiaozhi-android-client](https://github.com/TOM88812/xiaozhi-android-client) Android client
-- [100askTeam/xiaozhi-linux](http://github.com/100askTeam/xiaozhi-linux) Linux client by 100ask
-- [78/xiaozhi-sf32](https://github.com/78/xiaozhi-sf32) Bluetooth chip firmware by Sichuan
-- [QuecPython/solution-xiaozhiAI](https://github.com/QuecPython/solution-xiaozhiAI) QuecPython firmware by Quectel
+## 3) 🌐 Nghe nhạc ONLINE (Streaming + tự cache vào SD)
 
-Custom Assets Tools:
+### 3.1 Điều phối ưu tiên OFFLINE trước
+Tool **`self.music.play_song`** có logic:
 
-- [78/xiaozhi-assets-generator](https://github.com/78/xiaozhi-assets-generator) Custom Assets Generator (Wake words, fonts, emojis, backgrounds)
+1) Nếu SD có track trùng tên (thư viện SD đã load) → phát **OFFLINE**
+2) Nếu không có → phát **ONLINE** (download/stream)
 
-## About the Project
+### 3.2 Auto-cache MP3 vào SD (nghe online nhưng lưu để nghe lại)
+Khi phát online, firmware có cơ chế tự cache:
 
-This is an open-source ESP32 project, released under the MIT license, allowing anyone to use it for free, including for commercial purposes.
+- Thư mục cache: ` /sdcard/music `
+- Chỉ bắt đầu cache khi thời gian phát đạt tối thiểu: **15 giây**
+- Giới hạn số bài trong thư mục cache: **100 bài**
+  - Nếu vượt giới hạn → tự xoá **file cũ nhất** (dựa theo `st_mtime`) để giải phóng chỗ
 
-We hope this project helps everyone understand AI hardware development and apply rapidly evolving large language models to real hardware devices.
+> Lưu ý: Đây là cache “thực dụng” để tối ưu trải nghiệm. Nếu bạn cần chính sách cache khác (theo dung lượng, theo LRU thực sự, theo tag/album…), hãy chỉnh hằng số và hàm eviction trong `esp32_music.cc`.
 
-If you have any ideas or suggestions, please feel free to raise Issues or join the QQ group: 1011329060
+### 3.3 Cấu hình server nhạc
+URL server nhạc mặc định được khai báo tại:
 
-## Star History
+- `main/boards/common/esp32_music.cc`  
+  `#define DEFAULT_MUSIC_URL "http://...:5005"`
 
-<a href="https://star-history.com/#78/xiaozhi-esp32&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=78/xiaozhi-esp32&type=Date" />
- </picture>
-</a> 
+Bạn có thể đổi server bằng cách sửa macro và build lại firmware.
+
+---
+
+## 4) 📻 Internet Radio (AAC)
+
+### 4.1 Điểm nổi bật
+- Phát radio Internet với decoder **AAC**
+- Có danh sách kênh dựng sẵn (ưu tiên nội dung VN), ví dụ:
+  - JoyFM 98.9
+  - VOV1 / VOV2 / VOV3 / VOV5
+  - VOV Giao thông (HN/HCM)
+  - VOV vùng miền (Tây Bắc / Đông Bắc / Tây Nguyên / Mekong / …)
+
+### 4.2 Hỗ trợ điều khiển theo “tên kênh” và theo “URL”
+- Phát theo tên station: `self.radio.play_station`
+- Phát theo URL: `self.radio.play_url`
+- Dừng: `self.radio.stop`
+- Lấy danh sách kênh: `self.radio.get_stations`
+- Đổi chế độ hiển thị: `self.radio.set_display_mode`
+
+> Ghi chú kỹ thuật: log khởi tạo nêu rõ radio list hiện thiết kế theo hướng **AAC format only**.
+
+---
+
+## 5) 🌙 Lịch âm Việt Nam (Offline)
+
+### 5.1 Chức năng
+- Chuyển đổi **Dương lịch ↔ Âm lịch**
+- Hiển thị Can–Chi:
+  - Năm (CanChiYear)
+  - Tháng (CanChiMonth)
+  - Ngày (CanChiDay)
+
+### 5.2 Timezone mặc định
+- Timezone mặc định cho chuyển đổi:
+  - `UTC+7` (Việt Nam)
+- Có thể override compile-time:
+  - `LUNAR_TZ_HOURS`
+
+---
+
+## 6) 🌦️ Thời tiết (OpenWeatherMap + auto-location IP)
+
+### 6.1 Dữ liệu hiển thị
+- Thời tiết hiện tại (current)
+- Dự báo 5 ngày (forecast)
+- Ngôn ngữ mô tả: **tiếng Việt** (`OPENWEATHER_LANG = "vi"`)
+
+### 6.2 Auto-location theo IP (khi không cấu hình city)
+Chuỗi ưu tiên geolocation:
+
+1) `ipwho.is`  
+2) `ipwhois.app`  
+3) `ipapi.co`
+
+Cache vị trí IP:
+- TTL: **6 giờ**
+
+Chu kỳ cập nhật thời tiết:
+- **10 phút/lần**
+
+### 6.3 Cấu hình API key & City (NVS)
+WeatherService ưu tiên đọc cấu hình từ NVS theo thứ tự:
+
+- Namespace `wifi`:
+  - `weather_api_key`
+  - `weather_city`
+- Fallback namespace `weather`:
+  - `api_key`
+  - `city`
+
+Quy ước:
+- `city` rỗng hoặc `"auto"` → bật auto-location theo IP
+
+> Ghi chú: Firmware có thể chứa API key mặc định để chạy thử. Trong môi trường production, nên set key riêng để quản trị quota và truy vết.
+
+---
+
+## 7) 🖥️ Idle overlay: Weather ↔ Lunar (tối ưu trải nghiệm khi rảnh)
+Khi thiết bị vào trạng thái Idle, UI sẽ:
+
+- Nếu **weather sẵn sàng** → luân phiên hiển thị:
+  - Weather widget ↔ Lunar widget
+- Nếu **không có mạng / weather không sẵn sàng** → giữ Lunar widget (fallback chuẩn)
+
+Tần suất luân phiên:
+- **180 giây (3 phút)** một lần
+
+---
+
+## 8) MCP Tools: “ý định” ↔ “tool” (dành cho điều khiển)
+Dưới đây là mapping công cụ đã đăng ký trong MCP server:
+
+### 8.1 Nghe nhạc (tự ưu tiên SD trước)
+- `self.music.play_song`
+  - Args:
+    - `song_name` (bắt buộc)
+    - `artist_name` (tuỳ chọn)
+  - Hành vi:
+    - Có bài trên SD → phát OFFLINE
+    - Không có → phát ONLINE
+
+### 8.2 SD Music (chỉ dùng khi người dùng muốn thao tác trực tiếp thư viện SD)
+- Playback cơ bản: `self.sdmusic.playback` (`action = play|pause|stop|next|prev`)
+- Chế độ phát: `self.sdmusic.mode` (shuffle / repeat)
+- Track: `self.sdmusic.track` (phát theo index, lấy thông tin track, v.v.)
+- Thư mục: `self.sdmusic.directory`
+- Tìm kiếm: `self.sdmusic.search`
+- Thư viện: `self.sdmusic.library`
+- Quét lại: `self.sdmusic.reload`
+- Gợi ý: `self.sdmusic.suggest`
+- Tiến độ: `self.sdmusic.progress`
+- Genre: `self.sdmusic.genre` và `self.sdmusic.genre_list`
+
+### 8.3 Radio
+- `self.radio.play_station`
+- `self.radio.play_url`
+- `self.radio.stop`
+- `self.radio.get_stations`
+- `self.radio.set_display_mode`
+
+---
+
+## 9) File/Module liên quan (để bạn tìm đúng chỗ trong code)
+
+<details>
+<summary><b>📁 Danh sách file cốt lõi</b></summary>
+
+### 🎵 SD music
+- `main/boards/common/esp32_sd_music.cc`
+- `main/boards/common/esp32_sd_music.h`
+
+### 🌐 Online music + auto-cache
+- `main/boards/common/esp32_music.cc`
+- `main/boards/common/esp32_music.h`
+
+### 📻 Radio
+- `main/boards/common/esp32_radio.cc`
+- `main/boards/common/esp32_radio.h`
+- `main/boards/common/radio.h`
+
+### 🌙 Lịch âm
+- `main/boards/common/lunar_calendar.cc`
+- `main/boards/common/lunar_calendar.h`
+- `main/boards/common/lunar_widget.cc`
+- `main/boards/common/lunar_widget.h`
+
+### 🌦️ Thời tiết
+- `main/boards/common/weather_service.cc`
+- `main/boards/common/weather_service.h`
+- `main/boards/common/weather_widget.cc`
+- `main/boards/common/weather_widget.h`
+
+### 🖥️ Idle overlay rotation
+- `main/application.cc`
+
+### 🔧 MCP Tools registry
+- `main/mcp_server.cc`
+
+</details>
+
+---
+
+## 10) Checklist vận hành (nhanh, thực dụng)
+
+### SD card
+- [ ] SD mount OK
+- [ ] Có nhạc trong SD
+- [ ] Cho phép ghi để tạo:
+  - `playlist.json`
+  - thư mục cache `/sdcard/music`
+
+### Online/Radio/Weather
+- [ ] Wi‑Fi ổn định
+- [ ] Weather: đã set `weather_api_key` (khuyến nghị)
+- [ ] City: để `"auto"` nếu muốn tự định vị theo IP
+
+---
+
+### Phạm vi tài liệu
+Tài liệu này bám sát source hiện có và tập trung vào nhóm tính năng: **offline music / online music / radio / lunar / weather**.
