@@ -90,8 +90,15 @@ private:
     std::condition_variable buffer_cv_;
     size_t                  buffer_size_{0};
 
-    static constexpr size_t MAX_BUFFER_SIZE = 256 * 1024;  // 256KB buffer
-    static constexpr size_t MIN_BUFFER_SIZE = 32 * 1024;   // 32KB minimum playback buffer
+    // Memory profile: define RAM_LOW_MEM for boards without PSRAM / tight heap.
+    // MAX_BUFFER_SIZE bounds the queued compressed bytes.
+#if defined(RAM_LOW_MEM)
+    static constexpr size_t MAX_BUFFER_SIZE = 64 * 1024;   // 64KB
+    static constexpr size_t MIN_BUFFER_SIZE = 8 * 1024;    // 8KB
+#else
+    static constexpr size_t MAX_BUFFER_SIZE = 256 * 1024;  // 256KB
+    static constexpr size_t MIN_BUFFER_SIZE = 32 * 1024;   // 32KB
+#endif
 
     // MP3 decoder-related
     HMP3Decoder  mp3_decoder_{nullptr};

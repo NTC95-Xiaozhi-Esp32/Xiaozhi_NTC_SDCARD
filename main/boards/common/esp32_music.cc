@@ -950,7 +950,11 @@ void Esp32Music::DownloadAudioStream(const std::string& music_url) {
     ESP_LOGI(TAG, "Started downloading audio stream, status: %d", status_code);
 
     // Read audio data in chunks
+#if defined(RAM_LOW_MEM)
+    const size_t chunk_size = 2048;  // reduce peak RAM / fragmentation
+#else
     const size_t chunk_size = 8192;  // 8KB per chunk
+#endif
     char* buffer = new char[chunk_size];
     size_t total_downloaded = 0;
     size_t total_print_bytes = 0;
@@ -990,8 +994,11 @@ void Esp32Music::DownloadAudioStream(const std::string& music_url) {
             }
         }
 
-        // Create audio data chunk
+        // Create audio data chunk (prefer PSRAM, fallback to internal heap)
         uint8_t* chunk_data = (uint8_t*)heap_caps_malloc(bytes_read, MALLOC_CAP_SPIRAM);
+        if (!chunk_data) {
+            chunk_data = (uint8_t*)heap_caps_malloc(bytes_read, MALLOC_CAP_8BIT);
+        }
         if (!chunk_data) {
             ESP_LOGE(TAG, "Failed to allocate memory for audio chunk");
             break;
@@ -1075,13 +1082,13 @@ void Esp32Music::PlayAudioStream() {
     }
 
     // Wait for the buffer to have enough data to start playback
-    {
-        std::unique_lock<std::mutex> lock(buffer_mutex_);
-        constexpr size_t kMinPrebuffer = 64 * 1024; // 64KB
-		buffer_cv_.wait(lock, [this] {
-			return buffer_size_ >= kMinPrebuffer || (!is_downloading_ && !audio_buffer_.empty());
-		});
-    }
+	    {
+	        std::unique_lock<std::mutex> lock(buffer_mutex_);
+	        constexpr size_t kMinPrebuffer = MIN_BUFFER_SIZE * 2;
+			buffer_cv_.wait(lock, [this] {
+				return buffer_size_ >= kMinPrebuffer || (!is_downloading_ && !audio_buffer_.empty());
+			});
+	    }
 
     ESP_LOGI(TAG, "Starting playback with buffer size: %d", (int)buffer_size_);
 
@@ -1091,13 +1098,16 @@ void Esp32Music::PlayAudioStream() {
     int bytes_left = 0;
     uint8_t* read_ptr = nullptr;
 
-    // Allocate MP3 input buffer
-    mp3_input_buffer = (uint8_t*)heap_caps_malloc(8192, MALLOC_CAP_SPIRAM);
-    if (!mp3_input_buffer) {
-        ESP_LOGE(TAG, "Failed to allocate MP3 input buffer");
-        is_playing_ = false;
-        return;
-    }
+	// Allocate MP3 input buffer (prefer PSRAM, fallback to internal heap)
+	mp3_input_buffer = (uint8_t*)heap_caps_malloc(8192, MALLOC_CAP_SPIRAM);
+	if (!mp3_input_buffer) {
+	    mp3_input_buffer = (uint8_t*)heap_caps_malloc(8192, MALLOC_CAP_8BIT);
+	}
+	if (!mp3_input_buffer) {
+	    ESP_LOGE(TAG, "Failed to allocate MP3 input buffer");
+	    is_playing_ = false;
+	    return;
+	}
 
     // Flag to indicate if ID3 tags have been processed
     bool id3_processed = false;

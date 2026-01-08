@@ -23,23 +23,23 @@ LV_FONT_DECLARE(lv_font_montserrat_14);
 LV_FONT_DECLARE(lv_font_montserrat_20);
 LV_FONT_DECLARE(lv_font_ds_digitb_48); // Font số to
 
-// --- COLOR PALETTE DEFINITION ---
+// --- COLOR PALETTE DEFINITION (REDESIGNED: MODERN VIVID) ---
 // Common Colors
-#define CLR_ACCENT          lv_color_hex(0x3366FF) // Xanh dương chủ đạo
-#define CLR_HIGHLIGHT       lv_color_hex(0x00D97E) // Xanh lá nhấn (Hoàng đạo)
-#define CLR_BAD             lv_color_hex(0xE63946) // Đỏ (Hắc đạo/CN)
+#define CLR_ACCENT          lv_color_hex(0x2962FF) // Xanh dương đậm (Material Blue A700) - Rất mạnh và đẹp
+#define CLR_HIGHLIGHT       lv_color_hex(0x00C853) // Xanh ngọc lục bảo (Material Green A700)
+#define CLR_BAD             lv_color_hex(0xFF3D00) // Đỏ cam cháy (Material Deep Orange)
 
-// Day Theme (Light)
-#define CLR_DAY_BG          lv_color_hex(0xF0F4F8) // Nền sáng
-#define CLR_DAY_CARD        lv_color_hex(0xFFFFFF) // Thẻ trắng
-#define CLR_DAY_TXT_MAIN    lv_color_hex(0x102A43) // Chữ đậm
-#define CLR_DAY_TXT_SUB     lv_color_hex(0x627D98) // Chữ mờ
+// Day Theme (Modern Clean)
+#define CLR_DAY_BG          lv_color_hex(0xF2F4F6) // Xám trắng hiện đại
+#define CLR_DAY_CARD        lv_color_hex(0xFFFFFF) // Thẻ trắng tinh
+#define CLR_DAY_TXT_MAIN    lv_color_hex(0x2C3E50) // Xanh đen than (Midnight Blue)
+#define CLR_DAY_TXT_SUB     lv_color_hex(0x7F8C8D) // Xám bê tông (Asbestos)
 
-// Night Theme (Dark)
-#define CLR_NIGHT_BG        lv_color_hex(0x000000) // Nền đen
-#define CLR_NIGHT_CARD      lv_color_hex(0x1A1A1A) // Thẻ xám đậm
-#define CLR_NIGHT_TXT_MAIN  lv_color_hex(0xFFFFFF) // Chữ trắng
-#define CLR_NIGHT_TXT_SUB   lv_color_hex(0xA0A0A0) // Chữ xám sáng
+// Night Theme (High Contrast OLED)
+#define CLR_NIGHT_BG        lv_color_hex(0x000000) // Đen tuyền
+#define CLR_NIGHT_CARD      lv_color_hex(0x1E1E1E) // Xám than rất tối (Material Dark Surface)
+#define CLR_NIGHT_TXT_MAIN  lv_color_hex(0xFFFFFF) // Trắng sáng
+#define CLR_NIGHT_TXT_SUB   lv_color_hex(0xB0BEC5) // Xám xanh nhạt (Blue Grey)
 
 
 static void ReplaceAllUtf8InPlace(std::string& str, const char* from, const char* to) {

@@ -21,7 +21,7 @@
 #include "esp32_music.h"
 #include "esp32_radio.h"
 #include "esp32_sd_music.h"
-#include <wifi_manager.h> 
+#include "wifi_station.h"
 #include "system_info.h"
 
 #define TAG "MCP"
@@ -64,20 +64,17 @@ void McpServer::AddCommonTools() {
         "Returns the new IP address, SSID, and connection status. Also displays IP address as QR code on LCD screen.",
         PropertyList(),
         [&board](const PropertyList& properties) -> ReturnValue {
-            // [FIX 1] Sử dụng WifiManager và đồng bộ tên biến
-            auto& wifi_manager = WifiManager::GetInstance();
+            auto& wifi_station = WifiStation::GetInstance();
             ESP_LOGI(TAG, "Getting network status for IP address tool");
             cJSON* json = cJSON_CreateObject();
+            cJSON_AddBoolToObject(json, "connected", wifi_station.IsConnected());
             
-            // [FIXED] Sửa lỗi dùng sai tên biến wifi_station -> wifi_manager
-            cJSON_AddBoolToObject(json, "connected", wifi_manager.IsConnected());
-            
-            if (wifi_manager.IsConnected()) {
-                std::string ip_address = wifi_manager.GetIpAddress();
+            if (wifi_station.IsConnected()) {
+                std::string ip_address = wifi_station.GetIpAddress();
                 cJSON_AddStringToObject(json, "ip_address", ip_address.c_str());
-                cJSON_AddStringToObject(json, "ssid", wifi_manager.GetSsid().c_str());
-                cJSON_AddNumberToObject(json, "rssi", wifi_manager.GetRssi());
-                cJSON_AddNumberToObject(json, "channel", wifi_manager.GetChannel());
+                cJSON_AddStringToObject(json, "ssid", wifi_station.GetSsid().c_str());
+                cJSON_AddNumberToObject(json, "rssi", wifi_station.GetRssi());
+                cJSON_AddNumberToObject(json, "channel", wifi_station.GetChannel());
                 cJSON_AddStringToObject(json, "mac_address", SystemInfo::GetMacAddress().c_str());
                 cJSON_AddStringToObject(json, "status", "connected");
                 
@@ -208,8 +205,7 @@ void McpServer::AddCommonTools() {
     }
 #endif
 
-    // Lấy Music từ Board
-    auto music = Board::GetInstance().GetMusic();
+    auto music = Application::GetInstance().GetMusic();
      if (music) {
          AddTool("self.music.play_song",
 				 "Play a specified song ONLINE. Đây là chế độ PHÁT NHẠC MẶC ĐỊNH.\n"
@@ -279,8 +275,7 @@ void McpServer::AddCommonTools() {
                  });
      }
 
-    // Lấy Radio từ Board
-    auto radio = Board::GetInstance().GetRadio();
+    auto radio = Application::GetInstance().GetRadio();
 	if (radio) {		
         AddTool("self.radio.play_station",
 				"Search and play a radio station with intelligent fuzzy search and user guidance.\n"
@@ -310,10 +305,7 @@ void McpServer::AddCommonTools() {
 				}),
 				[radio](const PropertyList &properties) -> ReturnValue {
 					auto query = properties["station_name"].value<std::string>();
-                    
-                    // [FIXED] Cast sang Esp32Radio để dùng hàm SearchStations (Radio class gốc không có hàm này)
-                    auto esp32_radio = static_cast<Esp32Radio*>(radio);
-					auto stations = esp32_radio->SearchStations(query);
+					auto stations = radio->SearchStations(query);
 
 					if (stations.empty()) {
 						return "{\"success\": false, \"message\": \"Không tìm thấy đài nào cho '" + query + "'. Thử từ khóa chung hơn hoặc kiểm tra chính tả nhé.\"}";
@@ -487,8 +479,7 @@ void McpServer::AddCommonTools() {
 				[radio](const PropertyList &properties) -> ReturnValue {
 					bool enabled = properties["enabled"].value<bool>();
 					auto esp32_radio = static_cast<Esp32Radio *>(radio);
-                    // [FIXED] Sửa tên hàm thành SetMetadataEnabled (khớp với header)
-					esp32_radio->SetMetadataEnabled(enabled); 
+					esp32_radio->EnableMetadata(enabled);
 					return std::string("{\"success\": true, \"message\": \"Metadata ") + (enabled ? "enabled" : "disabled") + "\"}";
 				});
 
@@ -516,8 +507,7 @@ void McpServer::AddCommonTools() {
 				});
 	}
 	
-	// Lấy SdMusic từ Board
-	auto sd_music = Board::GetInstance().GetSdMusic();
+	auto sd_music = Application::GetInstance().GetSdMusic();
 	if (sd_music) {
 
 		// ================== 1) PLAYBACK CƠ BẢN ==================
@@ -1096,8 +1086,7 @@ void McpServer::AddCommonTools() {
 				Property("index",  kPropertyTypeInteger, 0, 0, 9999)
 			}),
 			[sd_music](const PropertyList& props) -> ReturnValue {
-				// [FIXED] Sử dụng Board thay vì Application
-				auto sd = Board::GetInstance().GetSdMusic();
+				auto sd = Application::GetInstance().GetSdMusic();
 				if (!sd) {
 					return "{\"success\": false, \"message\": \"SD music module not available\"}";
 				}
@@ -1244,8 +1233,9 @@ void McpServer::AddUserOnlyTools() {
             
             auto& app = Application::GetInstance();
             app.Schedule([url, &app]() {
-                // SỬA ĐỔI: Gọi trực tiếp UpgradeFirmware với URL
-                bool success = app.UpgradeFirmware(url);
+                auto ota = std::make_unique<Ota>();
+                
+                bool success = app.UpgradeFirmware(*ota, url);
                 if (!success) {
                     ESP_LOGE(TAG, "Firmware upgrade failed");
                 }

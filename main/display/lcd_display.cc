@@ -282,22 +282,38 @@ SpiLcdDisplay::SpiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_h
         lv_display_set_offset(display_, offset_x, offset_y);
     }
 	
-    fft_real = (float*)heap_caps_malloc(LCD_FFT_SIZE * sizeof(float), MALLOC_CAP_SPIRAM);
-    fft_imag = (float*)heap_caps_malloc(LCD_FFT_SIZE * sizeof(float), MALLOC_CAP_SPIRAM);
-    hanning_window_float = (float*)heap_caps_malloc(LCD_FFT_SIZE * sizeof(float), MALLOC_CAP_SPIRAM);
+	// FFT buffers: ưu tiên PSRAM nếu có, fallback về internal heap để tránh crash trên board không có PSRAM.
+	const bool has_psram = esp_psram_is_initialized();
+	const int caps_prefer = has_psram ? MALLOC_CAP_SPIRAM : MALLOC_CAP_8BIT;
 
-    for (int i = 0; i < LCD_FFT_SIZE; i++) {
-        hanning_window_float[i] = 0.5 * (1.0 - cos(2.0 * M_PI * i / (LCD_FFT_SIZE - 1)));
-    }
-    
-    if(audio_data_==nullptr){
-        audio_data_=(int16_t*)heap_caps_malloc(sizeof(int16_t)*1152, MALLOC_CAP_SPIRAM);
-        memset(audio_data_,0,sizeof(int16_t)*1152);
-    }
-    if(frame_audio_data==nullptr){
-        frame_audio_data=(int16_t*)heap_caps_malloc(sizeof(int16_t)*1152, MALLOC_CAP_SPIRAM);
-        memset(frame_audio_data,0,sizeof(int16_t)*1152);
-    }
+	fft_real = (float*)heap_caps_malloc(LCD_FFT_SIZE * sizeof(float), caps_prefer);
+	fft_imag = (float*)heap_caps_malloc(LCD_FFT_SIZE * sizeof(float), caps_prefer);
+	hanning_window_float = (float*)heap_caps_malloc(LCD_FFT_SIZE * sizeof(float), caps_prefer);
+	if (!fft_real) fft_real = (float*)heap_caps_malloc(LCD_FFT_SIZE * sizeof(float), MALLOC_CAP_8BIT);
+	if (!fft_imag) fft_imag = (float*)heap_caps_malloc(LCD_FFT_SIZE * sizeof(float), MALLOC_CAP_8BIT);
+	if (!hanning_window_float) hanning_window_float = (float*)heap_caps_malloc(LCD_FFT_SIZE * sizeof(float), MALLOC_CAP_8BIT);
+
+	if (!fft_real || !fft_imag || !hanning_window_float) {
+		ESP_LOGE(TAG, "Failed to allocate FFT buffers (psram=%d)", (int)has_psram);
+		if (fft_real) { heap_caps_free(fft_real); fft_real = nullptr; }
+		if (fft_imag) { heap_caps_free(fft_imag); fft_imag = nullptr; }
+		if (hanning_window_float) { heap_caps_free(hanning_window_float); hanning_window_float = nullptr; }
+	} else {
+		for (int i = 0; i < LCD_FFT_SIZE; i++) {
+			hanning_window_float[i] = 0.5f * (1.0f - cosf(2.0f * (float)M_PI * (float)i / (float)(LCD_FFT_SIZE - 1)));
+		}
+	}
+
+	if (audio_data_ == nullptr) {
+		audio_data_ = (int16_t*)heap_caps_malloc(sizeof(int16_t) * 1152, caps_prefer);
+		if (!audio_data_) audio_data_ = (int16_t*)heap_caps_malloc(sizeof(int16_t) * 1152, MALLOC_CAP_8BIT);
+		if (audio_data_) memset(audio_data_, 0, sizeof(int16_t) * 1152);
+	}
+	if (frame_audio_data == nullptr) {
+		frame_audio_data = (int16_t*)heap_caps_malloc(sizeof(int16_t) * 1152, caps_prefer);
+		if (!frame_audio_data) frame_audio_data = (int16_t*)heap_caps_malloc(sizeof(int16_t) * 1152, MALLOC_CAP_8BIT);
+		if (frame_audio_data) memset(frame_audio_data, 0, sizeof(int16_t) * 1152);
+	}
     
     ESP_LOGI(TAG,"Initialize fft_input, audio_data_, frame_audio_data, spectrum_data");
     SetupUI();
@@ -420,6 +436,42 @@ MipiLcdDisplay::MipiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel
 
 LcdDisplay::~LcdDisplay() {
     SetPreviewImage(nullptr);
+
+    // Ensure FFT task/resources are stopped and freed before tearing down LVGL objects.
+    StopFFT();
+
+    if (final_pcm_data_fft != nullptr) {
+        heap_caps_free(final_pcm_data_fft);
+        final_pcm_data_fft = nullptr;
+        final_pcm_data_fft_bytes_ = 0;
+        final_pcm_data_fft_valid_ = 0;
+    }
+
+    if (audio_data_ != nullptr) {
+        heap_caps_free(audio_data_);
+        audio_data_ = nullptr;
+    }
+    if (frame_audio_data != nullptr) {
+        heap_caps_free(frame_audio_data);
+        frame_audio_data = nullptr;
+    }
+    if (fft_real != nullptr) {
+        heap_caps_free(fft_real);
+        fft_real = nullptr;
+    }
+    if (fft_imag != nullptr) {
+        heap_caps_free(fft_imag);
+        fft_imag = nullptr;
+    }
+    if (hanning_window_float != nullptr) {
+        heap_caps_free(hanning_window_float);
+        hanning_window_float = nullptr;
+    }
+
+    if (canvas_buffer_ != nullptr) {
+        heap_caps_free(canvas_buffer_);
+        canvas_buffer_ = nullptr;
+    }
 
     // Clean up optional weather widget overlay (it is parented to the active screen)
     if (weather_widget_ != nullptr) {
@@ -2157,16 +2209,28 @@ int16_t* LcdDisplay::MakeAudioBuffFFT(size_t sample_count) {
         heap_caps_free(final_pcm_data_fft);
         final_pcm_data_fft = nullptr;
     }
-    final_pcm_data_fft = (int16_t *)heap_caps_malloc(sample_count, MALLOC_CAP_SPIRAM);
+    final_pcm_data_fft_bytes_ = 0;
+    final_pcm_data_fft_valid_ = 0;
+
+    const bool has_psram = esp_psram_is_initialized();
+    const int caps_prefer = has_psram ? MALLOC_CAP_SPIRAM : MALLOC_CAP_8BIT;
+    final_pcm_data_fft = (int16_t*)heap_caps_malloc(sample_count, caps_prefer);
     if (!final_pcm_data_fft) {
-        ESP_LOGE(TAG, "MakeAudioBuffFFT: malloc %u bytes failed", (unsigned)sample_count);
+        final_pcm_data_fft = (int16_t*)heap_caps_malloc(sample_count, MALLOC_CAP_8BIT);
     }
+    if (!final_pcm_data_fft) {
+        ESP_LOGE(TAG, "MakeAudioBuffFFT: malloc %u bytes failed (psram=%d)", (unsigned)sample_count, (int)has_psram);
+        return nullptr;
+    }
+    final_pcm_data_fft_bytes_ = sample_count;
     return final_pcm_data_fft;
 }
 
 void LcdDisplay::FeedAudioDataFFT(int16_t* data, size_t sample_count) {
-    if (!final_pcm_data_fft || !data) return;
-    memcpy(final_pcm_data_fft, data, sample_count);
+    if (!final_pcm_data_fft || !data || final_pcm_data_fft_bytes_ == 0) return;
+    const size_t n = std::min(sample_count, final_pcm_data_fft_bytes_);
+    memcpy(final_pcm_data_fft, data, n);
+    final_pcm_data_fft_valid_ = n;
 }
 
 void LcdDisplay::ReleaseAudioBuffFFT(int16_t* buffer) {
@@ -2174,20 +2238,40 @@ void LcdDisplay::ReleaseAudioBuffFFT(int16_t* buffer) {
     if (final_pcm_data_fft != nullptr) {
         heap_caps_free(final_pcm_data_fft);
         final_pcm_data_fft = nullptr;
+        final_pcm_data_fft_bytes_ = 0;
+        final_pcm_data_fft_valid_ = 0;
     }
 }
 
 void LcdDisplay::processAudioData() {
-    if(final_pcm_data_fft != nullptr) {
-        if(audio_display_last_update <= 2) {
-            memcpy(audio_data_, final_pcm_data_fft, sizeof(int16_t) * 1152);
-            for(int i = 0; i < 1152; i++) {
-                frame_audio_data[i] += audio_data_[i];
-            }
-            audio_display_last_update++;
-        } else {
-            const int HOP_SIZE = LCD_FFT_SIZE;
-            const int NUM_SEGMENTS = 1 + (1152 - LCD_FFT_SIZE) / HOP_SIZE;
+    if (!final_pcm_data_fft || final_pcm_data_fft_valid_ == 0) {
+        return;
+    }
+    if (!audio_data_ || !frame_audio_data || !fft_real || !fft_imag || !hanning_window_float) {
+        // FFT path not initialized; avoid NULL dereference.
+        return;
+    }
+
+    constexpr size_t kFrameBytes = sizeof(int16_t) * 1152;
+    const size_t copy_bytes = std::min(final_pcm_data_fft_valid_, kFrameBytes);
+
+    if (audio_display_last_update <= 2) {
+        memcpy(audio_data_, final_pcm_data_fft, copy_bytes);
+        if (copy_bytes < kFrameBytes) {
+            memset(reinterpret_cast<uint8_t*>(audio_data_) + copy_bytes, 0, kFrameBytes - copy_bytes);
+        }
+        for (int i = 0; i < 1152; i++) {
+            frame_audio_data[i] += audio_data_[i];
+        }
+        audio_display_last_update++;
+    } else {
+	            const int HOP_SIZE = LCD_FFT_SIZE;
+	            const int NUM_SEGMENTS = 1 + (1152 - LCD_FFT_SIZE) / HOP_SIZE;
+
+	            // Reset accumulator for this FFT window.
+	            for (int i = 0; i < LCD_FFT_SIZE / 2; i++) {
+	                avg_power_spectrum[i] = 0.0f;
+	            }
 
             for (int seg = 0; seg < NUM_SEGMENTS; seg++) {
                 int start = seg * HOP_SIZE;
@@ -2214,10 +2298,6 @@ void LcdDisplay::processAudioData() {
             audio_display_last_update = 0;
             fft_data_ready = true;
             memset(frame_audio_data, 0, sizeof(int16_t) * 1152);
-        }
-    } else {
-        ESP_LOGI(TAG, "audio_data_ is nullptr");
-        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 

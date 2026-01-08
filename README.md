@@ -482,6 +482,14 @@ Phần này đi theo đúng cấu trúc source để bạn “đọc code có đ
 
 ---
 
+## 13) Tham khảo mã nguồn & Lời cảm ơn
+Dự án này được xây dựng và phát triển dựa trên sự đóng góp và mã nguồn tham khảo từ cộng đồng. Xin chân thành cảm ơn:
+
+- **[Tên dự án/Tác giả]**: [Mô tả ngắn gọn hoặc Link]
+- *(Khu vực dành cho các đóng góp sau này)*
+
+---
+
 ### Phạm vi tài liệu
 Tài liệu này bám sát source hiện có và tập trung vào nhóm tính năng:  
 **offline music / online music / radio / alarm / lunar / weather**.

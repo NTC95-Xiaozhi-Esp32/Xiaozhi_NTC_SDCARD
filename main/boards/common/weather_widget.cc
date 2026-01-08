@@ -29,32 +29,32 @@ LV_FONT_DECLARE(lv_font_ds_digitb_48);
 
 #define TAG "WeatherWidget"
 
-// --- COLOR PALETTE DEFINITION ---
+// --- COLOR PALETTE DEFINITION (REDESIGNED: MODERN VIVID) ---
 
-// Common Accents (Giữ nguyên màu tươi để tạo điểm nhấn)
-#define COLOR_VIVID_CYAN    lv_color_hex(0x00FFFF) // Mưa, Gió
-#define COLOR_VIVID_YELLOW  lv_color_hex(0xFFD700) // Nắng
-#define COLOR_VIVID_PINK    lv_color_hex(0xFF1493) // Sấm, Áp suất
-#define COLOR_VIVID_BLUE    lv_color_hex(0x1E90FF) // Mây
-#define COLOR_VIVID_GREEN   lv_color_hex(0x00FF7F) // Độ ẩm
-#define COLOR_VIVID_ORANGE  lv_color_hex(0xFF8C00) 
+// Common Accents (Neon & Vivid Style)
+#define COLOR_VIVID_CYAN    lv_color_hex(0x00F2FF) // Cyan Neon (Mưa/Gió)
+#define COLOR_VIVID_YELLOW  lv_color_hex(0xFFDD00) // Vàng rực (Nắng)
+#define COLOR_VIVID_PINK    lv_color_hex(0xFF007F) // Hồng Neon (Sấm/Áp suất)
+#define COLOR_VIVID_BLUE    lv_color_hex(0x00B0FF) // Xanh dương sáng (Mây)
+#define COLOR_VIVID_GREEN   lv_color_hex(0x00E676) // Xanh lá tươi (Độ ẩm)
+#define COLOR_VIVID_ORANGE  lv_color_hex(0xFF6D00) // Cam đậm (Hoàng hôn)
 
-// Gradient Bars (Purple -> Blue) - Giữ nguyên vì đẹp trên cả 2 nền
-#define GRAD_START          lv_color_hex(0x8A2BE2) 
-#define GRAD_END            lv_color_hex(0x4169E1) 
+// Gradient Bars (Electric Violet -> Deep Blue)
+#define GRAD_START          lv_color_hex(0x7F00FF) // Tím Violet đậm
+#define GRAD_END            lv_color_hex(0x00C6FF) // Xanh Neon sáng
 
 // --- THEME COLORS ---
-// Day Theme (Light)
-#define CLR_DAY_BG          lv_color_hex(0xF0F4F8) // Nền sáng
-#define CLR_DAY_TXT_MAIN    lv_color_hex(0x102A43) // Chữ đậm
-#define CLR_DAY_TXT_SUB     lv_color_hex(0x627D98) // Chữ mờ
-#define CLR_DAY_DOTS        lv_color_hex(0x102A43) // Chấm bi tối
+// Day Theme (Modern Clean)
+#define CLR_DAY_BG          lv_color_hex(0xECF0F3) // Trắng xám xanh nhẹ (Neumorphism base)
+#define CLR_DAY_TXT_MAIN    lv_color_hex(0x2D3436) // Xám than chì đậm (Dễ đọc)
+#define CLR_DAY_TXT_SUB     lv_color_hex(0x636E72) // Xám trung tính
+#define CLR_DAY_DOTS        lv_color_hex(0xB2BEC3) // Chấm bi màu bạc
 
-// Night Theme (Dark - Vivid)
-#define CLR_NIGHT_BG        lv_color_hex(0x000000) // Nền đen (OLED friendly)
-#define CLR_NIGHT_TXT_MAIN  lv_color_hex(0xFFFFFF) // Chữ trắng
-#define CLR_NIGHT_TXT_SUB   lv_color_hex(0xB0B0B0) // Chữ bạc
-#define CLR_NIGHT_DOTS      lv_color_hex(0xFFFFFF) // Chấm bi trắng
+// Night Theme (High Contrast OLED)
+#define CLR_NIGHT_BG        lv_color_hex(0x000000) // Đen tuyệt đối
+#define CLR_NIGHT_TXT_MAIN  lv_color_hex(0xFFFFFF) // Trắng tinh khiết
+#define CLR_NIGHT_TXT_SUB   lv_color_hex(0x9E9E9E) // Xám bạc sáng
+#define CLR_NIGHT_DOTS      lv_color_hex(0x424242) // Chấm bi xám tối
 
 namespace {
 
@@ -98,7 +98,7 @@ static lv_obj_t* CreateDotsRow(lv_obj_t* parent, int screen_width, float w_ratio
         lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
         // Màu mặc định là Night (Trắng), sẽ được cập nhật bởi Theme logic
         lv_obj_set_style_bg_color(dot, CLR_NIGHT_DOTS, 0);
-        lv_obj_set_style_bg_opa(dot, LV_OPA_30, 0); 
+        lv_obj_set_style_bg_opa(dot, LV_OPA_80, 0); // Tăng độ đậm lên một chút để rõ hơn
         lv_obj_set_style_border_width(dot, 0, 0);
     }
     (void)screen_width;
@@ -313,8 +313,8 @@ void WeatherWidget::CreateDetailArc(lv_obj_t* parent,
     lv_obj_set_style_arc_width(arc, std::max(2, box_size / 10), LV_PART_MAIN);
     lv_obj_set_style_arc_width(arc, std::max(2, box_size / 10), LV_PART_INDICATOR);
     
-    // Nền Arc màu xám đậm (Dark Gray) để nổi màu chính
-    lv_obj_set_style_arc_color(arc, lv_color_hex(0x333333), LV_PART_MAIN);
+    // Nền Arc màu xám đậm (Dark Gray) để nổi màu chính - Update: Darker grey for Better Contrast
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x2d2d2d), LV_PART_MAIN);
     lv_obj_set_style_arc_color(arc, color, LV_PART_INDICATOR);
     *arc_out = arc;
 

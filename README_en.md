@@ -484,6 +484,14 @@ This section follows the source structure so you can “read the code with inten
 
 ---
 
+## 13) Source Code Reference & Credits
+This project is built and developed based on contributions and reference source code from the community. Special thanks to:
+
+- **[Project/Author Name]**: [Short description or Link]
+- *(Space reserved for future contributions)*
+
+---
+
 ### Document scope
 This doc follows the current source and focuses on:  
 **offline music / online music / radio / alarm / lunar / weather**.
