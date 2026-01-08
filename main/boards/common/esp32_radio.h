@@ -48,14 +48,9 @@ struct HlsPlaylistInfo {
 struct RadioAudioChunk {
     uint8_t* data;
     size_t size;
-    size_t offset;
-    size_t capacity;
-
-    RadioAudioChunk() : data(nullptr), size(0), offset(0), capacity(0) {}
-    RadioAudioChunk(uint8_t* d, size_t s, size_t cap = 0)
-        : data(d), size(s), offset(0), capacity(cap ? cap : s) {}
+    RadioAudioChunk() : data(nullptr), size(0) {}
+    RadioAudioChunk(uint8_t* d, size_t s) : data(d), size(s) {}
 };
-
 
 struct RadioStation {
     std::string name;
@@ -72,16 +67,11 @@ public:
 	// Hỗ trợ cả 3 định dạng phổ biến
     enum StreamFormat { FORMAT_UNKNOWN, FORMAT_AAC, FORMAT_MP3, FORMAT_TS };
 
-    // Chế độ buffer: ổn định hay ưu tiên độ trễ thấp
-    enum BufferMode { BUFFER_MODE_STABLE = 0, BUFFER_MODE_LOW_LATENCY = 1 };
-
 private:
     std::string current_station_name_;
     std::string current_station_url_;
     bool station_name_displayed_;
     float current_station_volume_;
-    // Gain nội bộ cho stream (bù âm lượng đài). Nhân vào current_station_volume_.
-    std::atomic<float> stream_gain_{1.0f};
     std::map<std::string, RadioStation> radio_stations_;
     
     std::atomic<DisplayMode> display_mode_;
@@ -94,36 +84,8 @@ private:
     std::mutex buffer_mutex_;
     std::condition_variable buffer_cv_;
     size_t buffer_size_;
-    // Memory profile: define RAM_LOW_MEM for boards without PSRAM / tight heap.
-#if defined(RAM_LOW_MEM)
-    static constexpr size_t MAX_BUFFER_SIZE = 128 * 1024;
-    static constexpr size_t MIN_BUFFER_SIZE = 16 * 1024;
-#else
-    static constexpr size_t MAX_BUFFER_SIZE = 512 * 1024;
-    static constexpr size_t MIN_BUFFER_SIZE = 64 * 1024;
-#endif
-    // Buffer policy & metadata
-    std::atomic<BufferMode> buffer_mode_{BUFFER_MODE_STABLE};
-    std::atomic<bool> metadata_enabled_{true};
-
-    // Now playing (ICY metadata / ID3) - thread-safe
-    mutable std::mutex now_playing_mutex_;
-    std::string now_playing_;
-
-    // Chunk pool để giảm phân mảnh heap (ưu tiên SPIRAM)
-    static constexpr size_t POOL_BLOCK_SIZE = 4096;
-    // Pool blocks are allocated up-front in ctor; scale down aggressively on low-mem builds.
-#if defined(RAM_LOW_MEM)
-    static constexpr size_t POOL_BLOCK_COUNT = 16; // ~64KB
-#else
-    static constexpr size_t POOL_BLOCK_COUNT = 48; // ~192KB
-#endif
-    std::mutex pool_mutex_;
-    std::vector<uint8_t*> pool_blocks_;
-
-    // Track sample rate để tránh SetOutputSampleRate liên tục
-    uint32_t last_output_sample_rate_ = 0;
-
+    static constexpr size_t MAX_BUFFER_SIZE = 256 * 1024;
+    static constexpr size_t MIN_BUFFER_SIZE = 32 * 1024;
 	
 	//--- Audio DSP ---
 	AudioDSPState dsp_state_;
@@ -146,9 +108,6 @@ private:
     // --- HLS STATE MANAGEMENT ---
     std::atomic<bool> is_hls_mode_{false};
     HlsPlaylistInfo current_hls_playlist_;
-
-    // Yêu cầu reset decoder (khi reconnect/format thay đổi)
-    std::atomic<bool> decoder_reset_requested_{false};
     
     // Private methods
     void InitializeRadioStations();
@@ -161,19 +120,9 @@ private:
 
     // Hàm xử lý gói tin TS (MPEG Transport Stream)
     void ProcessTS(uint8_t*& read_ptr, int& bytes_left, int16_t* pcm_buffer, size_t& total_played);
-
-    // Buffer helpers
-    uint8_t* AcquirePoolBlock(size_t& capacity);
-    void ReleasePoolBlock(uint8_t* ptr);
-    bool EnqueueAudio(const uint8_t* data, size_t len);
-    void ReleaseChunkData(RadioAudioChunk& chunk);
+	
 	void ClearAudioBuffer();
-
-    // Metadata helpers
-    void UpdateNowPlaying(const std::string& now_playing);
-
     bool InitializeAacDecoder();
-
     void CleanupAacDecoder();
 
     bool InitializeMp3Decoder(); 
@@ -206,21 +155,9 @@ public:
     virtual bool IsDownloading() const override { return is_downloading_; }
     virtual int16_t* GetAudioData() override { return final_pcm_data_fft; }
     void SetDisplayMode(DisplayMode mode);
-
-    // Gain nội bộ cho stream (khác với volume của loa). Dùng để bù âm lượng đài nhỏ.
-    void SetStreamGain(float gain);
-    float GetStreamGain() const;
-
-    void SetBufferMode(BufferMode mode);
-    BufferMode GetBufferMode() const;
-
-    void SetMetadataEnabled(bool enabled);
-    bool IsMetadataEnabled() const;
-    std::string GetNowPlaying() const;
-
+	
 	// Hàm tìm kiếm thông minh (Hybrid: Offline + Online)
     virtual std::vector<RadioStation> SearchStations(const std::string& query);
-
 };
 
 #endif // ESP32_RADIO_H

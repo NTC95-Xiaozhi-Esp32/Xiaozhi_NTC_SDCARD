@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cstring>
 #include <esp_pthread.h>
-#include <qrcode.h>
 
 #include "application.h"
 #include "display.h"
@@ -21,8 +20,7 @@
 #include "esp32_music.h"
 #include "esp32_radio.h"
 #include "esp32_sd_music.h"
-#include <wifi_manager.h> 
-#include "system_info.h"
+#include "alarm_manager.h"
 
 #define TAG "MCP"
 
@@ -39,7 +37,7 @@ McpServer::~McpServer() {
 void McpServer::AddCommonTools() {
     // *Important* To speed up the response time, we add the common tools to the beginning of
     // the tools list to utilize the prompt cache.
-    // **Important** To improve response speed, we place commonly used tools at the beginning to leverage the prompt cache feature.
+    // **重要** 为了提升响应速度，我们把常用的工具放在前面，利用 prompt cache 的特性。
 
     // Backup the original tools list and restore it after adding the common tools.
     auto original_tools = std::move(tools_);
@@ -56,73 +54,6 @@ void McpServer::AddCommonTools() {
         PropertyList(),
         [&board](const PropertyList& properties) -> ReturnValue {
             return board.GetDeviceStatusJson();
-        });
-
-    AddTool("self.network.ip2qrcode",
-        "Print the QR code of the IP address connected to WiFi network.\n"
-        "Use this tool when user asks about network connection, IP address and print QR code.\n"
-        "Returns the new IP address, SSID, and connection status. Also displays IP address as QR code on LCD screen.",
-        PropertyList(),
-        [&board](const PropertyList& properties) -> ReturnValue {
-            // [FIX 1] Sử dụng WifiManager và đồng bộ tên biến
-            auto& wifi_manager = WifiManager::GetInstance();
-            ESP_LOGI(TAG, "Getting network status for IP address tool");
-            cJSON* json = cJSON_CreateObject();
-            
-            // [FIXED] Sửa lỗi dùng sai tên biến wifi_station -> wifi_manager
-            cJSON_AddBoolToObject(json, "connected", wifi_manager.IsConnected());
-            
-            if (wifi_manager.IsConnected()) {
-                std::string ip_address = wifi_manager.GetIpAddress();
-                cJSON_AddStringToObject(json, "ip_address", ip_address.c_str());
-                cJSON_AddStringToObject(json, "ssid", wifi_manager.GetSsid().c_str());
-                cJSON_AddNumberToObject(json, "rssi", wifi_manager.GetRssi());
-                cJSON_AddNumberToObject(json, "channel", wifi_manager.GetChannel());
-                cJSON_AddStringToObject(json, "mac_address", SystemInfo::GetMacAddress().c_str());
-                cJSON_AddStringToObject(json, "status", "connected");
-                
-                // Generate and display QR code for IP address
-                auto display = board.GetDisplay();
-                if (display) {
-                    ESP_LOGI(TAG, "Generating QR code for IP address: %s", ip_address.c_str());                    
-                    if (display->QRCodeIsSupported()) {
-                        ip_address += "/ota";
-                        display->SetIpAddress(ip_address);
-                        // Capture display pointer for callback
-                        static Display* s_display = display;
-                        esp_qrcode_config_t qrcode_cfg = {
-                            .display_func = [](esp_qrcode_handle_t qrcode) {
-                                if (s_display && qrcode) {
-                                    s_display->DisplayQRCode(qrcode, nullptr);
-                                }
-                            },
-                            .max_qrcode_version = 10,
-                            .qrcode_ecc_level = ESP_QRCODE_ECC_MED
-                        };
-                        
-                        // Create URL format for QR code
-                        std::string qr_text = "http://" + ip_address;
-                        esp_err_t err = esp_qrcode_generate(&qrcode_cfg, qr_text.c_str());
-                        if (err == ESP_OK) {
-                            ESP_LOGI(TAG, "QR code generated and displayed for IP: %s", ip_address.c_str());
-                            cJSON_AddBoolToObject(json, "qrcode_displayed", true);
-                        } else {
-                            ESP_LOGE(TAG, "Failed to generate QR code for IP address");
-                            cJSON_AddBoolToObject(json, "qrcode_displayed", false);
-                        }
-                    } else {
-                        display->SetChatMessage("assistant", ip_address.c_str());
-                        vTaskDelay(pdMS_TO_TICKS(5000));
-                        ESP_LOGW(TAG, "Display does not support QR code");
-                        cJSON_AddBoolToObject(json, "qrcode_displayed", false);
-                    }
-                }
-            } else {
-                cJSON_AddStringToObject(json, "status", "disconnected");
-                cJSON_AddStringToObject(json, "message", "Device is not connected to WiFi");
-            }
-            
-            return json;
         });
 
     AddTool("self.audio_speaker.set_volume", 
@@ -168,20 +99,6 @@ void McpServer::AddCommonTools() {
                 }
                 return false;
             });
-            
-        // Rotation display tool
-        AddTool("self.screen.set_rotation",
-            "Set the rotation of the screen display. The rotation can be 0, 90 or left, 180 of flip, 270 or right degrees.",
-            PropertyList({
-                Property("rotation_degree", kPropertyTypeInteger, 0, 270)
-            }),
-            [display](const PropertyList& properties) -> ReturnValue {
-                int rotation_degree = properties["rotation_degree"].value<int>();
-                if (rotation_degree == 0 || rotation_degree == 90 || rotation_degree == 180 || rotation_degree == 270) {
-                    return display->SetRotation(rotation_degree, true);
-                }
-                return false;
-            });  
     }
 
     auto camera = board.GetCamera();
@@ -208,741 +125,707 @@ void McpServer::AddCommonTools() {
     }
 #endif
 
-    // Lấy Music từ Board
-    auto music = Board::GetInstance().GetMusic();
-     if (music) {
-         AddTool("self.music.play_song",
-				 "Play a specified song ONLINE. Đây là chế độ PHÁT NHẠC MẶC ĐỊNH.\n"
-				 "Khi người dùng nói: 'phát nhạc', 'mở nhạc', 'phát bài hát', "
-				 "'play music', 'play song', 'mở bài ...', AI phải ưu tiên dùng tool này.\n"
-				 "\n"
-				 "Chỉ dùng SD card nếu người dùng nói rõ: 'nhạc trong thẻ nhớ', "
-				 "'nhạc offline', 'bài trong thẻ', 'SD card', 'chạy nhạc nội bộ', v.v.\n"
-				 "\n"
-				 "Args:\n"
-				 "  song_name: Tên bài hát (bắt buộc)\n"
-				 "  artist_name: Tên ca sĩ (tùy chọn)\n"
-				 "Return:\n"
-				 "  Phát bài hát online ngay lập tức.\n",
-                 PropertyList({
-                     Property("song_name", kPropertyTypeString),      // Song name (required)
-                     Property("artist_name", kPropertyTypeString, "") // Artist name (optional, defaults to empty string)
-                 }),
-                 [music](const PropertyList &properties) -> ReturnValue {
-                     auto song_name = properties["song_name"].value<std::string>();
-                     auto artist_name = properties["artist_name"].value<std::string>();
+    // ---------------------------------------------------------------------
+	// Alarm tools (self.alarm.*) 
+	//
+	// days_mask encoding:
+	//   Bit0=Sun, Bit1=Mon, ... Bit6=Sat
+	//   0   -> one-shot
+	//   127 -> every day
+	//   weekdays (Mon-Fri) => 62
+	// ---------------------------------------------------------------------
+	{
+		auto& alarm = AlarmManager::GetInstance();
 
-                     if (!music->Download(song_name, artist_name))
-                     {
-                         return "{\"success\": false, \"message\": \"Failed to get music resource\"}";
-                     }
-                     auto download_result = music->GetDownloadResult();
-                     ESP_LOGI(TAG, "Music details result: %s", download_result.c_str());
-                     return "{\"success\": true, \"message\": \"Music started playing\"}";
-                 });
+		AddTool("self.alarm.set",
+			"Tạo/cập nhật báo thức.",
+			PropertyList({
+				Property("id", kPropertyTypeString, std::string("")),
+				Property("hour", kPropertyTypeInteger, 0, 23),
+				Property("minute", kPropertyTypeInteger, 0, 59),
+				Property("days_mask", kPropertyTypeInteger, 0, 0, 127),
+				Property("repeat_daily", kPropertyTypeBoolean, false),
+				Property("enabled", kPropertyTypeBoolean, true),
+				Property("label", kPropertyTypeString, std::string("")),
+				Property("ringtone", kPropertyTypeString, std::string("ga")),
+				Property("snooze_minutes", kPropertyTypeInteger, 10, 1, 120),
+				Property("ring_interval_sec", kPropertyTypeInteger, 10, 1, 60),
+				Property("max_rings", kPropertyTypeInteger, 10, 1, 60),
+			}),
+			[&alarm](const PropertyList& p) -> ReturnValue {
+				Alarm spec;
+				spec.id = p["id"].value<std::string>();
+				spec.hour = p["hour"].value<int>();
+				spec.minute = p["minute"].value<int>();
 
-         AddTool("self.music.set_display_mode",
-                 "Set the display mode for music playback. You can choose to display spectrum or lyrics, for example when user says 'show spectrum' or 'display spectrum', 'show lyrics' or 'display lyrics', set the corresponding display mode.\n"
-                 "Args:\n"
-                 "  `mode`: Display mode, options are 'spectrum' or 'lyrics'.\n"
-                 "Return:\n"
-                 "  Setting result information.",
-                 PropertyList({
-                     Property("mode", kPropertyTypeString) // Display mode: "spectrum" or "lyrics"
-                 }),
-                 [music](const PropertyList &properties) -> ReturnValue {
-                     auto mode_str = properties["mode"].value<std::string>();
+				int mask = p["days_mask"].value<int>();
+				bool repeat_daily = p["repeat_daily"].value<bool>();
+				if (repeat_daily) {
+					mask = 127;
+				}
+				spec.days_mask = static_cast<uint8_t>(mask);
 
-                     // Convert to lowercase for comparison
-                     std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
+				spec.enabled = p["enabled"].value<bool>();
+				spec.label = p["label"].value<std::string>();
+				spec.ringtone = p["ringtone"].value<std::string>();
+				spec.snooze_minutes = p["snooze_minutes"].value<int>();
+				spec.ring_interval_sec = p["ring_interval_sec"].value<int>();
+				spec.max_rings = p["max_rings"].value<int>();
 
-                     if (mode_str == "spectrum")
-                     {
-                         // Set to spectrum display mode
-                         auto esp32_music = static_cast<Esp32Music *>(music);
-                         esp32_music->SetDisplayMode(Esp32Music::DISPLAY_MODE_SPECTRUM);
-                         return "{\"success\": true, \"message\": \"Switched to spectrum display mode\"}";
-                     }
-                     else if (mode_str == "lyrics")
-                     {
-                         // Set to lyrics display mode
-                         auto esp32_music = static_cast<Esp32Music *>(music);
-                         esp32_music->SetDisplayMode(Esp32Music::DISPLAY_MODE_LYRICS);
-                         return "{\"success\": true, \"message\": \"Switched to lyrics display mode\"}";
-                     }
-                     else
-                     {
-                         return "{\"success\": false, \"message\": \"Invalid display mode, please use 'spectrum' or 'lyrics'\"}";
-                     }
+				std::string out_id, err;
+				if (!alarm.UpsertAlarm(spec, out_id, err)) {
+					std::string msg = err.empty() ? "Failed" : err;
+					return std::string("{\"success\":false,\"message\":\"") + msg + "\"}";
+				}
+				return std::string("{\"success\":true,\"id\":\"") + out_id + "\",\"message\":\"OK\"}";
+			});
 
-                     return "{\"success\": false, \"message\": \"Failed to set display mode\"}";
-                 });
-     }
+		AddTool("self.alarm.list",
+			"Danh sách báo thức + trạng thái reo/snooze.",
+			PropertyList(),
+			[&alarm](const PropertyList&) -> ReturnValue {
+				std::string json;
+				alarm.ListAlarms(json);
+				return json;
+			});
 
-    // Lấy Radio từ Board
-    auto radio = Board::GetInstance().GetRadio();
-	if (radio) {		
-        AddTool("self.radio.play_station",
-				"Search and play a radio station with intelligent fuzzy search and user guidance.\n"
-				"This tool handles Vietnamese and English station names, provides smart suggestions, and guides users through selection.\n"
-    
-				"SEARCH RULES (CRITICAL):\n"
-				"1. EXACT STATION: If user names specific station (e.g., 'VOV1', 'BBC World', 'VOH 99.9'), use that exact name\n"
-				"2. COUNTRY/GENRE: If user asks for country/genre (e.g., 'đài Trung Quốc', 'nhạc Jazz', 'đài Hàn Quốc'), use ENGLISH keyword ('China', 'Jazz', 'Korea')\n"
-				"3. MAPPINGS: 'VOH 99'→'VOH 99.9', 'VUH'→'VOH', 'PPC'→'BBC', 'VOV một/mốt/mút/mụt'→'VOV1'\n"
-				"4. NEVER guess specific station names for country/genre searches\n"
-				
-				"RESPONSE GUIDELINES:\n"
-				"- SINGLE MATCH: Auto-play and confirm: 'Đang phát [Station Name]'\n"
-				"- MULTIPLE MATCHES: Present numbered list and ask for choice\n"
-				"- NO MATCHES: Offer helpful suggestions and alternatives\n"
-				
-				"USER INTERACTION EXAMPLES:\n"
-				"User: 'Bật VOV1' → AI: 'Đang phát VOV1'\n"
-				"User: 'Tìm đài Trung Quốc' → AI: 'Tìm thấy 5 đài Trung Quốc: 1. CRI China Plus, 2. ... Bạn chọn đài nào?'\n"
-				"User: 'Không tìm thấy' → AI: 'Thử từ khóa chung hơn như 'China' hoặc kiểm tra chính tả nhé'\n"
-				
-				"Args:\n"
-				"  `station_name`: Search keyword (station name, country, or genre)",
-				
-				PropertyList({
-					Property("station_name", kPropertyTypeString)
-				}),
-				[radio](const PropertyList &properties) -> ReturnValue {
-					auto query = properties["station_name"].value<std::string>();
-                    
-                    // [FIXED] Cast sang Esp32Radio để dùng hàm SearchStations (Radio class gốc không có hàm này)
-                    auto esp32_radio = static_cast<Esp32Radio*>(radio);
-					auto stations = esp32_radio->SearchStations(query);
+		AddTool("self.alarm.delete",
+			"Xoá báo thức theo id.",
+			PropertyList({
+				Property("id", kPropertyTypeString)
+			}),
+			[&alarm](const PropertyList& p) -> ReturnValue {
+				auto id = p["id"].value<std::string>();
+				bool ok = alarm.DeleteAlarm(id);
+				return ok ? "{\"success\":true}" : "{\"success\":false,\"message\":\"Alarm not found\"}";
+			});
 
-					if (stations.empty()) {
-						return "{\"success\": false, \"message\": \"Không tìm thấy đài nào cho '" + query + "'. Thử từ khóa chung hơn hoặc kiểm tra chính tả nhé.\"}";
-					}
+		AddTool("self.alarm.enable",
+			"Bật/tắt báo thức theo id.",
+			PropertyList({
+				Property("id", kPropertyTypeString),
+				Property("enabled", kPropertyTypeBoolean, true)
+			}),
+			[&alarm](const PropertyList& p) -> ReturnValue {
+				auto id = p["id"].value<std::string>();
+				bool en = p["enabled"].value<bool>();
+				bool ok = alarm.SetAlarmEnabled(id, en);
+				return ok ? "{\"success\":true}" : "{\"success\":false,\"message\":\"Alarm not found\"}";
+			});
 
-					if (stations.size() == 1) {
-						radio->PlayUrl(stations[0].url, stations[0].name);
-						return "{\"success\": true, \"message\": \"Đang phát: " + stations[0].name + "\"}";
-					}
+		AddTool("self.alarm.clear",
+			"Xoá toàn bộ báo thức.",
+			PropertyList(),
+			[&alarm](const PropertyList&) -> ReturnValue {
+				alarm.RemoveAll();
+				return "{\"success\":true}";
+			});
 
-					for (const auto& s : stations) {
-						if (strcasecmp(s.name.c_str(), query.c_str()) == 0) {
-							radio->PlayUrl(s.url, s.name);
-							return "{\"success\": true, \"message\": \"Tìm thấy chính xác. Đang phát: " + s.name + "\"}";
-						}
-					}
+		AddTool("self.alarm.stop",
+			"Dismiss báo thức đang reo và huỷ snooze nếu có.",
+			PropertyList(),
+			[&alarm](const PropertyList&) -> ReturnValue {
+				bool ok = alarm.StopRinging();
+				return ok ? "{\"success\":true}" : "{\"success\":false,\"message\":\"Not ringing\"}";
+			});
 
-					std::string result_json = "{\"success\": true, \"message\": \"Tìm thấy nhiều đài. Hãy đọc danh sách này và hỏi người dùng chọn:\", \"stations\": [";
-					
-					for (size_t i = 0; i < stations.size() && i < 10; ++i) {
-						result_json += "{\"name\": \"" + stations[i].name + "\", \"url\": \"" + stations[i].url + "\"}";
-						if (i < stations.size() - 1 && i < 9) result_json += ", ";
-					}
-					result_json += "]}";
-					
-					return result_json;
-				});
-		
-		AddTool("self.radio.play_url",
-				"Play a radio stream from a custom URL. Use this tool when user provides a specific radio stream URL.\n"
-				"Args:\n"
-				"  `url`: The URL of the radio stream to play (required).\n"
-				"  `name`: Custom name for the radio station (optional).\n"
-				"Return:\n"
-				"  Playback status information. Starts playing the radio stream immediately.",
-				PropertyList({
-					Property("url", kPropertyTypeString),     // Stream URL (required)
-					Property("name", kPropertyTypeString, "") // Station name (optional)
-				}),
-				[radio](const PropertyList &properties) -> ReturnValue
-				{
-					auto url = properties["url"].value<std::string>();
-					auto name = properties["name"].value<std::string>();
-
-					if (!radio->PlayUrl(url, name))
-					{
-						return "{\"success\": false, \"message\": \"Failed to play radio stream from URL: " + url + "\"}";
-					}
-					return "{\"success\": true, \"message\": \"Radio stream started playing\"}";
-				});
-
-		AddTool("self.radio.stop",
-				"Stop the currently playing radio stream.\n"
-				"Return:\n"
-				"  Stop status information.",
-				PropertyList(),
-				[radio](const PropertyList &properties) -> ReturnValue {
-					if (!radio->Stop())
-					{
-						return "{\"success\": false, \"message\": \"Failed to stop radio\"}";
-					}
-					return "{\"success\": true, \"message\": \"Radio stopped\"}";
-				});
-
-		AddTool("self.radio.get_stations",
-				"Get the list of PRESET (hardcoded) radio stations stored on the device.\n"
-				"Return:\n"
-				"  JSON array of available radio stations.",
-				PropertyList(),
-				[radio](const PropertyList &properties) -> ReturnValue {
-					auto stations = radio->GetStationList();
-					std::string result = "{\"success\": true, \"stations\": [";
-					for (size_t i = 0; i < stations.size(); ++i) {
-						result += "\"" + stations[i] + "\"";
-						if (i < stations.size() - 1) {
-							result += ", ";
-						}
-					}
-					result += "]}";
-					return result;
-				});
-
-		AddTool("self.radio.set_display_mode",
-				"Set the display mode for radio playback. You can choose to display spectrum or station info.\n"
-				"Args:\n"
-				"  `mode`: Display mode, options are 'spectrum' or 'info'.\n"
-				"Return:\n"
-				"  Setting result information.",
-				PropertyList({
-					Property("mode", kPropertyTypeString) // Display mode: "spectrum" or "info"
-				}),
-				[radio](const PropertyList &properties) -> ReturnValue {
-					auto mode_str = properties["mode"].value<std::string>();
-
-					// Convert to lowercase for comparison
-					std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
-
-					if (mode_str == "spectrum")
-					{
-						// Set to spectrum display mode
-						auto esp32_radio = static_cast<Esp32Radio *>(radio);
-						esp32_radio->SetDisplayMode(Esp32Radio::DISPLAY_MODE_SPECTRUM);
-						return "{\"success\": true, \"message\": \"Switched to spectrum display mode\"}";
-					}
-					else if (mode_str == "info")
-					{
-						// Set to info display mode
-						auto esp32_radio = static_cast<Esp32Radio *>(radio);
-						esp32_radio->SetDisplayMode(Esp32Radio::DISPLAY_MODE_INFO);
-						return "{\"success\": true, \"message\": \"Switched to info display mode\"}";
-					}
-					else
-					{
-						return "{\"success\": false, \"message\": \"Invalid display mode, please use 'spectrum' or 'info'\"}";
-					}
-				});
-
-
-		AddTool("self.radio.set_gain",
-				"Set a gain multiplier for current radio stream (applied on top of station volume).\n"
-				"Args:\n"
-				"  `gain`: Gain in percent (integer). Example: 100=1.0x, 150=1.5x, 200=2.0x. Range 0..800.\n"
-				"Return:\n"
-				"  Result information.",
-				PropertyList({
-					Property("gain", kPropertyTypeInteger)
-				}),
-				[radio](const PropertyList &properties) -> ReturnValue {
-					int gain_i = properties["gain"].value<int>();
-					if (gain_i < 0) gain_i = 0;
-					if (gain_i > 800) gain_i = 800;
-					float gain = (float)gain_i / 100.0f;
-					auto esp32_radio = static_cast<Esp32Radio *>(radio);
-					esp32_radio->SetStreamGain(gain);
-					return "{\"success\": true, \"message\": \"Stream gain updated\", \"gain\": " + std::to_string(gain_i) + "}";
-				});
-
-		AddTool("self.radio.set_buffer_mode",
-				"Set radio buffer policy. Use 'low_latency' to reduce delay, or 'stable' to maximize robustness.\n"
-				"Args:\n"
-				"  `mode`: 'stable' or 'low_latency'.\n"
-				"Return:\n"
-				"  Result information.",
-				PropertyList({
-					Property("mode", kPropertyTypeString)
-				}),
-				[radio](const PropertyList &properties) -> ReturnValue {
-					auto mode_str = properties["mode"].value<std::string>();
-					std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
-					auto esp32_radio = static_cast<Esp32Radio *>(radio);
-					if (mode_str == "low_latency" || mode_str == "low" || mode_str == "latency") {
-						esp32_radio->SetBufferMode(Esp32Radio::BUFFER_MODE_LOW_LATENCY);
-						return "{\"success\": true, \"message\": \"Buffer mode set to low_latency\"}";
-					}
-					if (mode_str == "stable" || mode_str == "robust") {
-						esp32_radio->SetBufferMode(Esp32Radio::BUFFER_MODE_STABLE);
-						return "{\"success\": true, \"message\": \"Buffer mode set to stable\"}";
-					}
-					return "{\"success\": false, \"message\": \"Invalid mode. Use 'stable' or 'low_latency'\"}";
-				});
-
-		AddTool("self.radio.enable_metadata",
-				"Enable or disable ICY metadata parsing (Now Playing) for radio streams.\n"
-				"Args:\n"
-				"  `enabled`: true or false.\n"
-				"Return:\n"
-				"  Result information.",
-				PropertyList({
-					Property("enabled", kPropertyTypeBoolean)
-				}),
-				[radio](const PropertyList &properties) -> ReturnValue {
-					bool enabled = properties["enabled"].value<bool>();
-					auto esp32_radio = static_cast<Esp32Radio *>(radio);
-                    // [FIXED] Sửa tên hàm thành SetMetadataEnabled (khớp với header)
-					esp32_radio->SetMetadataEnabled(enabled); 
-					return std::string("{\"success\": true, \"message\": \"Metadata ") + (enabled ? "enabled" : "disabled") + "\"}";
-				});
-
-		AddTool("self.radio.get_now_playing",
-				"Get the current Now Playing string (from ICY metadata when available).\n"
-				"Return:\n"
-				"  JSON with now_playing string.",
-				PropertyList(),
-				[radio](const PropertyList &properties) -> ReturnValue {
-					auto esp32_radio = static_cast<Esp32Radio *>(radio);
-					std::string np = esp32_radio->GetNowPlaying();
-					// Minimal JSON escaping
-					std::string out; out.reserve(np.size() + 16);
-					for (char c : np) {
-						switch (c) {
-							case '\\': out += "\\\\"; break;
-							case '"': out += "\\\""; break;
-							case '\n': out += "\\n"; break;
-							case '\r': out += "\\r"; break;
-							case '\t': out += "\\t"; break;
-							default: out += c; break;
-						}
-					}
-					return "{\"success\": true, \"now_playing\": \"" + out + "\"}";
-				});
+		AddTool("self.alarm.snooze",
+			"Snooze báo thức đang reo.",
+			PropertyList({
+				Property("minutes", kPropertyTypeInteger, 0, 0, 120)
+			}),
+			[&alarm](const PropertyList& p) -> ReturnValue {
+				int m = p["minutes"].value<int>();
+				bool ok = alarm.Snooze(m);
+				return ok ? "{\"success\":true}" : "{\"success\":false,\"message\":\"Not ringing\"}";
+			});
 	}
-	
-	// Lấy SdMusic từ Board
-	auto sd_music = Board::GetInstance().GetSdMusic();
-	if (sd_music) {
 
-		// ================== 1) PLAYBACK CƠ BẢN ==================
-		// Gộp: self.sdmusic.play, pause, stop, next, prev
-		AddTool("self.sdmusic.playback",
-				"Điều khiển phát nhạc từ THẺ NHỚ (SD card).\n"
-				"KHÔNG dùng tool này khi người dùng chỉ nói: 'phát nhạc', 'mở bài', "
-				"'play music', 'phát bài hát'.\n"
-				"\n"
-				"Tool này chỉ dùng khi người dùng nói rõ:\n"
-				"- nhạc trong thẻ nhớ\n"
-				"- nhạc offline\n"
-				"- phát bài trong thẻ\n"
-				"- SD card\n"
-				"- chạy nhạc từ thẻ\n"
-				"\n"
-				"action = play | pause | stop | next | prev\n"
-				"Return: trạng thái điều khiển SD card.\n",			
-			PropertyList({
-				Property("action", kPropertyTypeString),
-			}),
-			[sd_music](const PropertyList& props) -> ReturnValue {
-				std::string action = props["action"].value<std::string>();
+		auto music = board.GetMusic();
+		if (music) {
+			AddTool("self.music.play_song",
+					"Play a specified song. Đây là chế độ PHÁT NHẠC MẶC ĐỊNH.\n"
+					"Khi người dùng nói: 'phát nhạc', 'mở nhạc', 'phát bài hát', "
+					"'play music', 'play song', 'mở bài ...', AI phải ưu tiên dùng tool này.\n"
+					"\n"
+					"Hành vi:\n"
+					"- Luôn kiểm tra thư viện nhạc OFFLINE trong thẻ SD trước.\n"
+					"- Nếu tìm thấy bài trùng tên trong SD → phát OFFLINE (không tải lại, dùng playlist.json).\n"
+					"- Nếu không tìm thấy → phát ONLINE (download + stream, đồng thời tự cache file vào thẻ nhớ nếu có thể).\n"
+					"\n"
+					"Chỉ dùng các tool self.sdmusic.* khi người dùng yêu cầu thao tác trực tiếp "
+					"với nhạc trong thẻ (ví dụ: duyệt thư mục, liệt kê bài, phát cả folder, "
+					"gợi ý theo thể loại, ...).\n"
+					"\n"
+					"Args:\n"
+					"  song_name: Tên bài hát (bắt buộc, chỉ tên bài, không kèm 'mở', 'bài', 'phát')\n"
+					"  artist_name: Tên ca sĩ (tùy chọn)\n"
+					"Return:\n"
+					"  Phát bài hát từ SD nếu đã có, nếu không thì phát online.\n",
+					PropertyList({
+						Property("song_name",  kPropertyTypeString),      // Song name (required)
+						Property("artist_name", kPropertyTypeString, "")  // Artist name (optional, defaults to empty string)
+					}),
+					[music](const PropertyList &properties) -> ReturnValue {
+						auto song_name   = properties["song_name"].value<std::string>();
+						auto artist_name = properties["artist_name"].value<std::string>();
 
-				// Giữ hành vi lỗi giống code gốc:
-				// - play: trả JSON lỗi
-				// - pause/stop/next/prev: trả false
-				if (!sd_music) {
-					if (action == "play") {
-						return "{\"success\": false, \"message\": \"SD music module not available\"}";
-					}
-					return false;
-				}
+						// ================== ƯU TIÊN PHÁT TỪ THẺ NHỚ NẾU ĐÃ CÓ ==================
+						// Nếu SD music module tồn tại và có track trùng tên, phát OFFLINE trước
+						auto sd = Board::GetInstance().GetSdMusic();
+						if (sd && !song_name.empty()) {
+							// Đảm bảo đã load danh sách bài hát (cơ chế mới: ưu tiên đọc từ playlist.json)
+							if (sd->getTotalTracks() == 0) {
+								sd->loadTrackList(); // chỉ quét SD nếu playlist.json chưa tồn tại/hỏng
+							}
 
-				if (action == "play") {
-					if (sd_music->getTotalTracks() == 0) {
-						if (!sd_music->loadTrackList()) {
-							return "{\"success\": false, \"message\": \"No MP3 files found on SD card\"}";
+							if (sd->getTotalTracks() > 0) {
+								// playByName: dùng cùng cơ chế tìm kiếm như tool self.sdmusic.search/play
+								bool ok = sd->playByName(song_name);
+								if (ok) {
+									ESP_LOGI(TAG,
+											 "[MUSIC] Playing song '%s' from SD card (offline). Online fallback not used.",
+											 song_name.c_str());
+									return "{\"success\": true, \"message\": \"Playing song from SD card\"}";
+								} else {
+									ESP_LOGI(TAG,
+											 "[MUSIC] Song '%s' not found on SD card, falling back to ONLINE playback",
+											 song_name.c_str());
+								}
+							} else {
+								ESP_LOGI(TAG,
+										 "[MUSIC] SD card has no tracks loaded, falling back to ONLINE playback");
+							}
 						}
-					}
-					bool ok = sd_music->play();
-					return ok ? "{\"success\": true, \"message\": \"Playback started\"}"
-							  : "{\"success\": false, \"message\": \"Failed to play\"}";
-				}
+						// ================== SD ƯU TIÊN, ONLINE LÀ FALLBACK ==================
 
-				if (action == "pause") {
-					sd_music->pause();
-					return true;
-				}
+						if (!music->Download(song_name, artist_name)) {
+							return "{\"success\": false, \"message\": \"Failed to get music resource\"}";
+						}
 
-				if (action == "stop") {
-					sd_music->stop();
-					return true;
-				}
+						auto download_result = music->GetDownloadResult();
+						ESP_LOGI(TAG, "Music details result: %s", download_result.c_str());
+						return "{\"success\": true, \"message\": \"Music started playing\"}";
+					});
+		}
+		
+		auto sd = Board::GetInstance().GetSdMusic();
+		if (sd) {
 
-				if (action == "next") {
-					return sd_music->next();
-				}
+			// ================== 1) PLAYBACK CƠ BẢN ==================
+			// Gộp: self.sdmusic.play, pause, stop, next, prev
+			AddTool("self.sdmusic.playback",
+					"Điều khiển phát nhạc từ THẺ NHỚ (SD card).\n"
+					"KHÔNG dùng tool này khi người dùng chỉ nói: 'phát nhạc', 'mở bài', "
+					"'play music', 'phát bài hát'.\n"
+					"\n"
+					"Tool này chỉ dùng khi người dùng nói rõ:\n"
+					"- nhạc trong thẻ nhớ\n"
+					"- nhạc offline\n"
+					"- phát bài trong thẻ\n"
+					"- SD card\n"
+					"- chạy nhạc từ thẻ\n"
+					"\n"
+					"action = play | pause | stop | next | prev\n"
+					"Return: trạng thái điều khiển SD card.\n",
+				PropertyList({
+					Property("action", kPropertyTypeString),
+				}),
+				[](const PropertyList& props) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
+					std::string action = props["action"].value<std::string>();
 
-				if (action == "prev") {
-					return sd_music->prev();
-				}
-
-				// Hành vi mới, chỉ để an toàn
-				return "{\"success\":false,\"message\":\"Unknown playback action\"}";
-			}
-		);
-
-		// ================== 2) SHUFFLE / REPEAT MODE ==================
-		// Gộp: self.sdmusic.shuffle, repeat
-		AddTool(
-			"self.sdmusic.mode",
-			"Control playback mode: shuffle and repeat.\n"
-			"action = shuffle | repeat\n"
-			"For shuffle: `enabled` (bool)\n"
-			"For repeat: `mode` = none | one | all",
-			PropertyList({
-				Property("action",  kPropertyTypeString),
-				Property("enabled", kPropertyTypeBoolean),
-				Property("mode",    kPropertyTypeString)
-			}),
-			[sd_music](const PropertyList& props) -> ReturnValue {
-				if (!sd_music) return "SD music not available";
-
-				std::string action = props["action"].value<std::string>();
-
-				if (action == "shuffle") {
-					bool enabled = props["enabled"].value<bool>();
-					sd_music->shuffle(enabled);
-
-					if (enabled) {
-						if (sd_music->getTotalTracks() == 0) sd_music->loadTrackList();
-						if (sd_music->getTotalTracks() == 0) return false;
-
-						int idx = rand() % sd_music->getTotalTracks();
-						sd_music->setTrack(idx);   // auto play() như code gốc
-					}
-					return true;
-				}
-
-				if (action == "repeat") {
-					std::string mode = props["mode"].value<std::string>();
-
-					if (mode == "none")      sd_music->repeat(Esp32SdMusic::RepeatMode::None);
-					else if (mode == "one")  sd_music->repeat(Esp32SdMusic::RepeatMode::RepeatOne);
-					else if (mode == "all")  sd_music->repeat(Esp32SdMusic::RepeatMode::RepeatAll);
-					else return "Invalid repeat mode";
-
-					return true;
-				}
-
-				return "Unknown mode action";
-			}
-		);
-
-		// ================== 3) TRUY CẬP BÀI HÁT ==================
-		// Gộp: set_track, get_track_info, list, current
-		AddTool(
-			"self.sdmusic.track",
-			"Track-level operations.\n"
-			"action = set | info | list | current\n"
-			"  set:    needs `index`\n"
-			"  info:   needs `index`\n"
-			"  list:   return JSON { count }\n"
-			"  current: return name string",
-			PropertyList({
-				Property("action", kPropertyTypeString),
-				Property("index",  kPropertyTypeInteger, 0, 0, 9999)
-			}),
-			[sd_music](const PropertyList& props) -> ReturnValue {
-				std::string action = props["action"].value<std::string>();
-
-				// Hành vi khi !sd giống tool gốc, nhưng trả thêm field rỗng cho info
-				if (!sd_music) {
-					if (action == "set") {
+					// Giữ hành vi lỗi giống code gốc:
+					// - play: trả JSON lỗi
+					// - pause/stop/next/prev: trả false
+					if (!sd) {
+						if (action == "play") {
+							return "{\"success\": false, \"message\": \"SD music module not available\"}";
+						}
 						return false;
 					}
+
+					if (action == "play") {
+						if (sd->getTotalTracks() == 0) {
+							if (!sd->loadTrackList()) {
+								// Cơ chế mới: đọc playlist.json; chỉ quét SD nếu file chưa có/hỏng
+								return "{\"success\": false, \"message\": \"No supported audio files found on SD card\"}";
+							}
+						}
+						bool ok = sd->play();
+						return ok ? "{\"success\": true, \"message\": \"Playback started\"}"
+								  : "{\"success\": false, \"message\": \"Failed to play\"}";
+					}
+
+					if (action == "pause") {
+						sd->pause();
+						return true;
+					}
+
+					if (action == "stop") {
+						sd->stop();
+						return true;
+					}
+
+					if (action == "next") {
+						return sd->next();
+					}
+
+					if (action == "prev") {
+						return sd->prev();
+					}
+
+					// Hành vi mới, chỉ để an toàn
+					return "{\"success\":false,\"message\":\"Unknown playback action\"}";
+				}
+			);
+
+			// ================== 2) SHUFFLE / REPEAT MODE ==================
+			// Gộp: self.sdmusic.shuffle, repeat
+			AddTool(
+				"self.sdmusic.mode",
+				"Control playback mode: shuffle and repeat.\n"
+				"action = shuffle | repeat\n"
+				"For shuffle: `enabled` (bool)\n"
+				"For repeat: `mode` = none | one | all",
+				PropertyList({
+					Property("action",  kPropertyTypeString),
+					Property("enabled", kPropertyTypeBoolean),
+					Property("mode",    kPropertyTypeString)
+				}),
+				[](const PropertyList& props) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
+					if (!sd) return "SD music not available";
+
+					std::string action = props["action"].value<std::string>();
+
+					if (action == "shuffle") {
+						bool enabled = props["enabled"].value<bool>();
+						sd->shuffle(enabled);
+
+						if (enabled) {
+							if (sd->getTotalTracks() == 0) sd->loadTrackList(); // đọc từ playlist.json
+							if (sd->getTotalTracks() == 0) return false;
+
+							int idx = rand() % sd->getTotalTracks();
+							sd->setTrack(idx);   // auto play() như code gốc
+						}
+						return true;
+					}
+
+					if (action == "repeat") {
+						std::string mode = props["mode"].value<std::string>();
+
+						if (mode == "none")      sd->repeat(SdMusic::RepeatMode::None);
+						else if (mode == "one")  sd->repeat(SdMusic::RepeatMode::RepeatOne);
+						else if (mode == "all")  sd->repeat(SdMusic::RepeatMode::RepeatAll);
+						else return "Invalid repeat mode";
+
+						return true;
+					}
+
+					return "Unknown mode action";
+				}
+			);
+
+			// ================== 3) TRUY CẬP BÀI HÁT ==================
+			// Gộp: set_track, get_track_info, list, current
+			AddTool(
+				"self.sdmusic.track",
+				"Track-level operations.\n"
+				"action = set | info | list | current\n"
+				"  set:    needs `index`\n"
+				"  info:   needs `index`\n"
+				"  list:   return JSON { count }\n"
+				"  current: return name string",
+				PropertyList({
+					Property("action", kPropertyTypeString),
+					Property("index",  kPropertyTypeInteger, 0, 0, 9999)
+				}),
+				[](const PropertyList& props) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
+					std::string action = props["action"].value<std::string>();
+
+					// Hành vi khi !sd giống tool gốc, nhưng trả thêm field rỗng cho info
+					if (!sd) {
+						if (action == "set") {
+							return false;
+						}
+						if (action == "info") {
+							cJSON* json = cJSON_CreateObject();
+							cJSON_AddStringToObject(json, "name", "");
+							cJSON_AddStringToObject(json, "path", "");
+							cJSON_AddStringToObject(json, "title", "");
+							cJSON_AddStringToObject(json, "artist", "");
+							cJSON_AddStringToObject(json, "album", "");
+							cJSON_AddStringToObject(json, "genre", "");
+							cJSON_AddStringToObject(json, "comment", "");
+							cJSON_AddStringToObject(json, "year", "");
+							cJSON_AddNumberToObject(json, "track_number", 0);
+							cJSON_AddNumberToObject(json, "duration_ms", 0);
+							cJSON_AddNumberToObject(json, "bitrate_kbps", 0);
+							cJSON_AddNumberToObject(json, "file_size", 0);
+							cJSON_AddBoolToObject(json, "has_cover", false);
+							cJSON_AddNumberToObject(json, "cover_size", 0);
+							cJSON_AddStringToObject(json, "cover_mime", "");
+							return json;
+						}
+						if (action == "list") {
+							cJSON* o = cJSON_CreateObject();
+							cJSON_AddNumberToObject(o, "count", 0);
+							return o;
+						}
+						if (action == "current") {
+							return std::string("");
+						}
+						return "SD music module not available";
+					}
+
+					auto ensure_playlist = [sd]() {
+						if (sd->getTotalTracks() == 0) {
+							sd->loadTrackList(); // đọc từ playlist.json, không quét lại nếu file đã có
+						}
+					};
+
+					if (action == "set") {
+						int index = props["index"].value<int>();
+						ensure_playlist();
+						return sd->setTrack(index);
+					}
+
 					if (action == "info") {
+						ensure_playlist();
+						int index = props["index"].value<int>();
+						auto info = sd->getTrackInfo(index);
+
 						cJSON* json = cJSON_CreateObject();
-						cJSON_AddStringToObject(json, "name", "");
-						cJSON_AddStringToObject(json, "path", "");
-						cJSON_AddStringToObject(json, "title", "");
-						cJSON_AddStringToObject(json, "artist", "");
-						cJSON_AddStringToObject(json, "album", "");
-						cJSON_AddStringToObject(json, "genre", "");
-						cJSON_AddStringToObject(json, "comment", "");
-						cJSON_AddStringToObject(json, "year", "");
-						cJSON_AddNumberToObject(json, "track_number", 0);
-						cJSON_AddNumberToObject(json, "duration_ms", 0);
-						cJSON_AddNumberToObject(json, "bitrate_kbps", 0);
-						cJSON_AddNumberToObject(json, "file_size", 0);
-						cJSON_AddBoolToObject(json, "has_cover", false);
-						cJSON_AddNumberToObject(json, "cover_size", 0);
-						cJSON_AddStringToObject(json, "cover_mime", "");
+						cJSON_AddStringToObject(json, "name",  info.name.c_str());
+						cJSON_AddStringToObject(json, "path",  info.path.c_str());
+						cJSON_AddStringToObject(json, "title",  info.title.c_str());
+						cJSON_AddStringToObject(json, "artist", info.artist.c_str());
+						cJSON_AddStringToObject(json, "album",  info.album.c_str());
+						cJSON_AddStringToObject(json, "genre",  info.genre.c_str());
+						cJSON_AddStringToObject(json, "comment", info.comment.c_str());
+						cJSON_AddStringToObject(json, "year",   info.year.c_str());
+						cJSON_AddNumberToObject(json, "track_number", info.track_number);
+						cJSON_AddNumberToObject(json, "duration_ms",  info.duration_ms);
+						cJSON_AddNumberToObject(json, "bitrate_kbps", info.bitrate_kbps);
+						cJSON_AddNumberToObject(json, "file_size",    (double)info.file_size);
+
+						bool has_cover = (info.cover_size > 0);
+						cJSON_AddBoolToObject(json, "has_cover", has_cover);
+						cJSON_AddNumberToObject(json, "cover_size", (int)info.cover_size);
+						cJSON_AddStringToObject(json, "cover_mime", info.cover_mime.c_str());
 						return json;
 					}
+
 					if (action == "list") {
 						cJSON* o = cJSON_CreateObject();
-						cJSON_AddNumberToObject(o, "count", 0);
+						ensure_playlist();
+						cJSON_AddNumberToObject(o, "count", (int)sd->getTotalTracks());
 						return o;
 					}
+
 					if (action == "current") {
-						return std::string("");
+						ensure_playlist();
+						return sd->getCurrentTrack();
 					}
-					return "SD music module not available";
+
+					return "Unknown track action";
 				}
+			);
 
-				auto ensure_playlist = [sd_music]() {
-					if (sd_music->getTotalTracks() == 0) {
-						sd_music->loadTrackList();
-					}
-				};
+			// ================== 4) THƯ MỤC ==================
+			// Gộp: play_directory, list_directories
+			AddTool(
+				"self.sdmusic.directory",
+				"Directory-level operations.\n"
+				"action = play | list\n"
+				"  play: requires `directory`\n"
+				"  list: list directories under current root",
+				PropertyList({
+					Property("action",    kPropertyTypeString),
+					Property("directory", kPropertyTypeString)
+				}),
+				[](const PropertyList& props) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
+					std::string action = props["action"].value<std::string>();
 
-				if (action == "set") {
-					int index = props["index"].value<int>();
-					ensure_playlist();
-					return sd_music->setTrack(index);
-				}
-
-				if (action == "info") {
-					ensure_playlist();
-					int index = props["index"].value<int>();
-					auto info = sd_music->getTrackInfo(index);
-
-					cJSON* json = cJSON_CreateObject();
-					cJSON_AddStringToObject(json, "name",  info.name.c_str());
-					cJSON_AddStringToObject(json, "path",  info.path.c_str());
-					cJSON_AddStringToObject(json, "title",  info.title.c_str());
-					cJSON_AddStringToObject(json, "artist", info.artist.c_str());
-					cJSON_AddStringToObject(json, "album",  info.album.c_str());
-					cJSON_AddStringToObject(json, "genre",  info.genre.c_str());
-					cJSON_AddStringToObject(json, "comment", info.comment.c_str());
-					cJSON_AddStringToObject(json, "year",   info.year.c_str());
-					cJSON_AddNumberToObject(json, "track_number", info.track_number);
-					cJSON_AddNumberToObject(json, "duration_ms",  info.duration_ms);
-					cJSON_AddNumberToObject(json, "bitrate_kbps", info.bitrate_kbps);
-					cJSON_AddNumberToObject(json, "file_size",    (double)info.file_size);
-
-					bool has_cover = (info.cover_size > 0);
-					cJSON_AddBoolToObject(json, "has_cover", has_cover);
-					cJSON_AddNumberToObject(json, "cover_size", (int)info.cover_size);
-					cJSON_AddStringToObject(json, "cover_mime", info.cover_mime.c_str());
-					return json;
-				}
-
-				if (action == "list") {
-					cJSON* o = cJSON_CreateObject();
-					ensure_playlist();
-					cJSON_AddNumberToObject(o, "count", (int)sd_music->getTotalTracks());
-					return o;
-				}
-
-				if (action == "current") {
-					ensure_playlist();
-					return sd_music->getCurrentTrack();
-				}
-
-				return "Unknown track action";
-			}
-		);
-
-		// ================== 4) THƯ MỤC ==================
-		// Gộp: play_directory, list_directories
-		AddTool(
-			"self.sdmusic.directory",
-			"Directory-level operations.\n"
-			"action = play | list\n"
-			"  play: requires `directory`\n"
-			"  list: list directories under current root",
-			PropertyList({
-				Property("action",    kPropertyTypeString),
-				Property("directory", kPropertyTypeString)
-			}),
-			[sd_music](const PropertyList& props) -> ReturnValue {
-				std::string action = props["action"].value<std::string>();
-
-				// Hành vi khi !sd:
-				// - play_directory: JSON lỗi
-				// - list_directories: trả mảng rỗng
-				if (!sd_music) {
-					if (action == "play") {
+					// Hành vi khi !sd:
+					// - play_directory: JSON lỗi
+					// - list_directories: trả mảng rỗng
+					if (!sd) {
+						if (action == "play") {
+							return "{\"success\": false, \"message\": \"SD music module not available\"}";
+						}
+						if (action == "list") {
+							cJSON* arr = cJSON_CreateArray();
+							return arr;
+						}
 						return "{\"success\": false, \"message\": \"SD music module not available\"}";
 					}
+
+					if (action == "play") {
+						std::string dir = props["directory"].value<std::string>();
+
+						if (!sd->playDirectory(dir)) {
+							return "{\"success\": false, \"message\": \"Cannot play directory or directory has no supported audio files\"}";
+						}
+						return "{\"success\": true, \"message\": \"Playing directory\"}";
+					}
+
 					if (action == "list") {
 						cJSON* arr = cJSON_CreateArray();
+						auto list = sd->listDirectories();
+						for (auto& d : list) {
+							cJSON_AddItemToArray(arr, cJSON_CreateString(d.c_str()));
+						}
 						return arr;
 					}
-					return "{\"success\": false, \"message\": \"SD music module not available\"}";
+
+					return "{\"success\": false, \"message\": \"Unknown directory action\"}";
 				}
+			);
 
-				if (action == "play") {
-					std::string dir = props["directory"].value<std::string>();
+			// ================== 5) TÌM KIẾM / PLAY THEO TÊN ==================
+			// Gộp: search, play_by_name
+			AddTool(
+				"self.sdmusic.search",
+				"Search and play tracks by name.\n"
+				"action = search | play\n"
+				"  search: returns matching tracks (needs `keyword`)\n"
+				"  play:   play by name (needs `keyword`)",
+				PropertyList({
+					Property("action",  kPropertyTypeString),
+					Property("keyword", kPropertyTypeString)
+				}),
+				[](const PropertyList& props) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
+					std::string action  = props["action"].value<std::string>();
+					std::string keyword = props["keyword"].value<std::string>();
 
-					if (!sd_music->playDirectory(dir)) {
-						return "{\"success\": false, \"message\": \"Cannot play directory or directory has no MP3\"}";
+					if (!sd) {
+						if (action == "search") {
+							cJSON* arr = cJSON_CreateArray();
+							return arr;
+						}
+						if (action == "play") {
+							return "{\"success\": false, \"message\": \"SD music module not available\"}";
+						}
+						return "{\"success\": false, \"message\": \"SD music module not available\"}";
 					}
-					return "{\"success\": true, \"message\": \"Playing directory\"}";
-				}
 
-				if (action == "list") {
-					cJSON* arr = cJSON_CreateArray();
-					auto list = sd_music->listDirectories();
-					for (auto& d : list) {
-						cJSON_AddItemToArray(arr, cJSON_CreateString(d.c_str()));
-					}
-					return arr;
-				}
+					auto ensure_playlist = [sd]() {
+						if (sd->getTotalTracks() == 0) {
+							sd->loadTrackList(); // đọc từ playlist.json
+						}
+					};
 
-				return "{\"success\": false, \"message\": \"Unknown directory action\"}";
-			}
-		);
-
-		// ================== 5) TÌM KIẾM / PLAY THEO TÊN ==================
-		// Gộp: search, play_by_name
-		AddTool(
-			"self.sdmusic.search",
-			"Search and play tracks by name.\n"
-			"action = search | play\n"
-			"  search: returns matching tracks (needs `keyword`)\n"
-			"  play:   play by name (needs `keyword`)",
-			PropertyList({
-				Property("action",  kPropertyTypeString),
-				Property("keyword", kPropertyTypeString)
-			}),
-			[sd_music](const PropertyList& props) -> ReturnValue {
-				std::string action  = props["action"].value<std::string>();
-				std::string keyword = props["keyword"].value<std::string>();
-
-				if (!sd_music) {
 					if (action == "search") {
 						cJSON* arr = cJSON_CreateArray();
+						ensure_playlist();
+
+						auto list = sd->searchTracks(keyword);
+						// (Optional) nếu muốn có index, có thể map path -> index ở đây
+						for (auto& t : list) {
+							cJSON* o = cJSON_CreateObject();
+							cJSON_AddStringToObject(o, "name",  t.name.c_str());
+							cJSON_AddStringToObject(o, "path",  t.path.c_str());
+							cJSON_AddStringToObject(o, "title",  t.title.c_str());
+							cJSON_AddStringToObject(o, "artist", t.artist.c_str());
+							cJSON_AddStringToObject(o, "album",  t.album.c_str());
+							cJSON_AddStringToObject(o, "genre",  t.genre.c_str());
+							cJSON_AddStringToObject(o, "year",   t.year.c_str());
+							cJSON_AddNumberToObject(o, "track_number", t.track_number);
+							cJSON_AddNumberToObject(o, "duration_ms",  t.duration_ms);
+							cJSON_AddNumberToObject(o, "bitrate_kbps", t.bitrate_kbps);
+							bool has_cover = (t.cover_size > 0);
+							cJSON_AddBoolToObject(o, "has_cover", has_cover);
+							cJSON_AddNumberToObject(o, "cover_size", (int)t.cover_size);
+							cJSON_AddStringToObject(o, "cover_mime", t.cover_mime.c_str());
+							cJSON_AddItemToArray(arr, o);
+						}
 						return arr;
 					}
+
 					if (action == "play") {
+						if (keyword.empty())
+							return "{\"success\": false, \"message\": \"Keyword cannot be empty\"}";
+
+						ensure_playlist();
+						bool ok = sd->playByName(keyword);
+						return ok
+							? "{\"success\": true, \"message\": \"Playing song by name\"}"
+							: "{\"success\": false, \"message\": \"Song not found\"}";
+					}
+
+					return "{\"success\": false, \"message\": \"Unknown search action\"}";
+				}
+			);
+
+			// ================== 6) ĐẾM / PHÂN TRANG (DÙNG PLAYLIST.JSON, KHÔNG QUÉT SD) ==================
+			// Gộp: count_in_directory, count_current_directory, list_page
+			AddTool(
+				"self.sdmusic.library",
+				"Thông tin THƯ VIỆN BÀI HÁT (tracks), KHÔNG phải thư mục.\n"
+				"Tất cả thao tác dùng dữ liệu đã index trong playlist.json, không tự quét lại thẻ SD.\n"
+				"Nếu người dùng muốn quét lại toàn bộ, hãy dùng tool `self.sdmusic.reload`.\n"
+				"\n"
+				"action = count_dir | count_current | page\n"
+				"  count_dir: đếm SỐ BÀI HÁT trong thư mục chỉ định (dựa trên playlist hiện tại)\n"
+				"  count_current: đếm SỐ BÀI HÁT trong thư mục hiện tại\n"
+				"  page: phân trang DANH SÁCH BÀI HÁT\n"
+				"Lưu ý: công cụ này liên quan tới BÀI HÁT.\n"
+				"Nếu người dùng hỏi số THƯ MỤC, hãy dùng `self.sdmusic.directory`.",
+				PropertyList({
+					Property("action",    kPropertyTypeString),
+					Property("directory", kPropertyTypeString),
+					Property("page",      kPropertyTypeInteger, 1, 1, 10000),
+					Property("page_size", kPropertyTypeInteger, 10, 1, 1000)
+				}),
+				[](const PropertyList& props) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
+					std::string action = props["action"].value<std::string>();
+
+					if (!sd) {
+						if (action == "count_dir") {
+							cJSON* o = cJSON_CreateObject();
+							cJSON_AddNumberToObject(o, "count", 0);
+							cJSON_AddStringToObject(o, "directory", "");
+							return o;
+						}
+						if (action == "count_current") {
+							cJSON* o = cJSON_CreateObject();
+							cJSON_AddNumberToObject(o, "count", 0);
+							return o;
+						}
+						if (action == "page") {
+							cJSON* arr = cJSON_CreateArray();
+							return arr;
+						}
 						return "{\"success\": false, \"message\": \"SD music module not available\"}";
 					}
-					return "{\"success\": false, \"message\": \"SD music module not available\"}";
-				}
 
-				auto ensure_playlist = [sd_music]() {
-					if (sd_music->getTotalTracks() == 0) {
-						sd_music->loadTrackList();
-					}
-				};
+					auto ensure_playlist = [sd]() {
+						if (sd->getTotalTracks() == 0) {
+							sd->loadTrackList(); // đọc playlist.json; không quét lại nếu file đã có
+						}
+					};
 
-				if (action == "search") {
-					cJSON* arr = cJSON_CreateArray();
-					ensure_playlist();
-
-					auto list = sd_music->searchTracks(keyword);
-					// (Optional) nếu muốn có index, có thể map path -> index ở đây
-					for (auto& t : list) {
-						cJSON* o = cJSON_CreateObject();
-						cJSON_AddStringToObject(o, "name",  t.name.c_str());
-						cJSON_AddStringToObject(o, "path",  t.path.c_str());
-						cJSON_AddStringToObject(o, "title",  t.title.c_str());
-						cJSON_AddStringToObject(o, "artist", t.artist.c_str());
-						cJSON_AddStringToObject(o, "album",  t.album.c_str());
-						cJSON_AddStringToObject(o, "genre",  t.genre.c_str());
-						cJSON_AddStringToObject(o, "year",   t.year.c_str());
-						cJSON_AddNumberToObject(o, "track_number", t.track_number);
-						cJSON_AddNumberToObject(o, "duration_ms",  t.duration_ms);
-						cJSON_AddNumberToObject(o, "bitrate_kbps", t.bitrate_kbps);
-						bool has_cover = (t.cover_size > 0);
-						cJSON_AddBoolToObject(o, "has_cover", has_cover);
-						cJSON_AddNumberToObject(o, "cover_size", (int)t.cover_size);
-						cJSON_AddStringToObject(o, "cover_mime", t.cover_mime.c_str());
-						cJSON_AddItemToArray(arr, o);
-					}
-					return arr;
-				}
-
-				if (action == "play") {
-					if (keyword.empty())
-						return "{\"success\": false, \"message\": \"Keyword cannot be empty\"}";
-
-					ensure_playlist();
-					bool ok = sd_music->playByName(keyword);
-					return ok
-						? "{\"success\": true, \"message\": \"Playing song by name\"}"
-						: "{\"success\": false, \"message\": \"Song not found\"}";
-				}
-
-				return "{\"success\": false, \"message\": \"Unknown search action\"}";
-			}
-		);
-
-		// ================== 6) ĐẾM / PHÂN TRANG ==================
-		// Gộp: count_in_directory, count_current_directory, list_page
-		AddTool(
-			"self.sdmusic.library",
-			"Thông tin THƯ VIỆN BÀI HÁT (tracks), KHÔNG phải thư mục.\n"
-			"action = count_dir | count_current | page\n"
-			"  count_dir: đếm SỐ BÀI HÁT trong thư mục chỉ định\n"
-			"  count_current: đếm SỐ BÀI HÁT trong thư mục hiện tại\n"
-			"  page: phân trang DANH SÁCH BÀI HÁT\n"
-			"Lưu ý: công cụ này liên quan tới BÀI HÁT.\n"
-			"Nếu người dùng hỏi số THƯ MỤC, hãy dùng `self.sdmusic.directory`.",
-			PropertyList({
-				Property("action",    kPropertyTypeString),
-				Property("directory", kPropertyTypeString),
-				Property("page",      kPropertyTypeInteger, 1, 1, 10000),
-				Property("page_size", kPropertyTypeInteger, 10, 1, 1000)
-			}),
-			[sd_music](const PropertyList& props) -> ReturnValue {
-				std::string action = props["action"].value<std::string>();
-
-				if (!sd_music) {
 					if (action == "count_dir") {
 						cJSON* o = cJSON_CreateObject();
-						cJSON_AddNumberToObject(o, "count", 0);
-						cJSON_AddStringToObject(o, "directory", "");
+						std::string dir = props["directory"].value<std::string>();
+						ensure_playlist();
+						size_t count = sd->countTracksInDirectory(dir); // triển khai mới: đếm từ playlist_
+						cJSON_AddStringToObject(o, "directory", dir.c_str());
+						cJSON_AddNumberToObject(o, "count", (int)count);
 						return o;
 					}
+
 					if (action == "count_current") {
 						cJSON* o = cJSON_CreateObject();
-						cJSON_AddNumberToObject(o, "count", 0);
+						ensure_playlist();
+						cJSON_AddNumberToObject(o, "count", (int)sd->countTracksInCurrentDirectory());
 						return o;
 					}
+
 					if (action == "page") {
 						cJSON* arr = cJSON_CreateArray();
+						ensure_playlist();
+
+						int page      = props["page"].value<int>();
+						int page_size = props["page_size"].value<int>();
+						if (page <= 0) page = 1;
+						if (page_size <= 0) page_size = 10;
+
+						size_t page_index = (size_t)(page - 1);
+						auto list = sd->listTracksPage(page_index, (size_t)page_size);
+						size_t start_index = page_index * (size_t)page_size;
+
+						for (size_t i = 0; i < list.size(); ++i) {
+							const auto& t = list[i];
+							cJSON* o = cJSON_CreateObject();
+							cJSON_AddNumberToObject(o, "index", (int)(start_index + i));
+							cJSON_AddStringToObject(o, "name",  t.name.c_str());
+							cJSON_AddStringToObject(o, "path",  t.path.c_str());
+							cJSON_AddStringToObject(o, "title", t.title.c_str());
+							cJSON_AddStringToObject(o, "artist", t.artist.c_str());
+							cJSON_AddStringToObject(o, "album",  t.album.c_str());
+							cJSON_AddStringToObject(o, "genre",  t.genre.c_str());
+							cJSON_AddStringToObject(o, "year",   t.year.c_str());
+							cJSON_AddNumberToObject(o, "track_number", t.track_number);
+							cJSON_AddNumberToObject(o, "duration_ms",  t.duration_ms);
+							cJSON_AddNumberToObject(o, "bitrate_kbps", t.bitrate_kbps);
+							bool has_cover = (t.cover_size > 0);
+							cJSON_AddBoolToObject(o, "has_cover", has_cover);
+							cJSON_AddNumberToObject(o, "cover_size", (int)t.cover_size);
+							cJSON_AddStringToObject(o, "cover_mime", t.cover_mime.c_str());
+							cJSON_AddItemToArray(arr, o);
+						}
 						return arr;
 					}
-					return "{\"success\": false, \"message\": \"SD music module not available\"}";
-				}
 
-				auto ensure_playlist = [sd_music]() {
-					if (sd_music->getTotalTracks() == 0) {
-						sd_music->loadTrackList();
+					return "{\"success\": false, \"message\": \"Unknown library action\"}";
+				}
+			);
+
+			// ================== 7) NẠP LẠI DANH SÁCH NHẠC (QUÉT LẠI SD THEO YÊU CẦU) ==================
+			AddTool(
+				"self.sdmusic.reload",
+				"Quét lại toàn bộ thư viện nhạc trong thẻ SD và cập nhật playlist.json.\n"
+				"Chỉ dùng khi người dùng yêu cầu rõ ràng: 'nạp lại danh sách nhạc', 'quét lại nhạc', 'reload playlist', ...\n"
+				"Hành vi:\n"
+				"- Quét lại thư mục gốc hiện tại của SD music.\n"
+				"- Ghi đè file playlist.json tương ứng.\n"
+				"- Nạp lại danh sách bài hát vào bộ nhớ.\n"
+				"Return:\n"
+				"  JSON báo thành công / thất bại.",
+				PropertyList(),
+				[](const PropertyList&) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
+					if (!sd) {
+						return "{\"success\": false, \"message\": \"SD music module not available\"}";
 					}
-				};
-
-				if (action == "count_dir") {
-					cJSON* o = cJSON_CreateObject();
-					std::string dir = props["directory"].value<std::string>();
-					size_t count = sd_music->countTracksInDirectory(dir);
-					cJSON_AddStringToObject(o, "directory", dir.c_str());
-					cJSON_AddNumberToObject(o, "count", (int)count);
-					return o;
+					if (!sd->rebuildPlaylistFromSd()) { // hàm mới trong SdMusic: luôn quét lại SD + ghi playlist.json
+						return "{\"success\": false, \"message\": \"Failed to rescan SD card or no supported audio files found\"}";
+					}
+					return "{\"success\": true, \"message\": \"SD playlist reloaded from SD card\"}";
 				}
+			);
 
-				if (action == "count_current") {
-					cJSON* o = cJSON_CreateObject();
-					ensure_playlist();
-					cJSON_AddNumberToObject(o, "count", (int)sd_music->countTracksInCurrentDirectory());
-					return o;
-				}
-
-				if (action == "page") {
+			// ================== 8) GỢI Ý BÀI HÁT ==================
+			// Gộp: suggest_next, suggest_similar
+			AddTool(
+				"self.sdmusic.suggest",
+				"Song suggestion based on history / similarity.\n"
+				"action = next | similar\n"
+				"  next:    uses `max_results`\n"
+				"  similar: uses `keyword` + `max_results`",
+				PropertyList({
+					Property("action",      kPropertyTypeString),
+					Property("keyword",     kPropertyTypeString),
+					Property("max_results", kPropertyTypeInteger, 5, 1, 50)
+				}),
+				[](const PropertyList& props) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
 					cJSON* arr = cJSON_CreateArray();
+					std::string action  = props["action"].value<std::string>();
+
+					if (!sd) return arr;
+
+					std::string keyword = props["keyword"].value<std::string>();
+					int max_results     = props["max_results"].value<int>();
+					if (max_results <= 0) max_results = 5;
+
+					auto ensure_playlist = [sd]() {
+						if (sd->getTotalTracks() == 0) {
+							sd->loadTrackList();
+						}
+					};
 					ensure_playlist();
 
-					int page      = props["page"].value<int>();
-					int page_size = props["page_size"].value<int>();
-					if (page <= 0) page = 1;
-					if (page_size <= 0) page_size = 10;
-
-					size_t page_index = (size_t)(page - 1);
-					auto list = sd_music->listTracksPage(page_index, (size_t)page_size);
-					size_t start_index = page_index * (size_t)page_size;
-
-					for (size_t i = 0; i < list.size(); ++i) {
-						const auto& t = list[i];
+					auto add_track_to_array = [arr](const SdMusic::TrackInfo& t) {
 						cJSON* o = cJSON_CreateObject();
-						cJSON_AddNumberToObject(o, "index", (int)(start_index + i));
 						cJSON_AddStringToObject(o, "name",  t.name.c_str());
 						cJSON_AddStringToObject(o, "path",  t.path.c_str());
 						cJSON_AddStringToObject(o, "title", t.title.c_str());
@@ -958,254 +841,355 @@ void McpServer::AddCommonTools() {
 						cJSON_AddNumberToObject(o, "cover_size", (int)t.cover_size);
 						cJSON_AddStringToObject(o, "cover_mime", t.cover_mime.c_str());
 						cJSON_AddItemToArray(arr, o);
+					};
+
+					if (action == "next") {
+						auto list = sd->suggestNextTracks((size_t)max_results);
+						for (auto& t : list) {
+							add_track_to_array(t);
+						}
+						return arr;
 					}
+
+					if (action == "similar") {
+						auto list = sd->suggestSimilarTo(keyword, (size_t)max_results);
+						for (auto& t : list) {
+							add_track_to_array(t);
+						}
+						return arr;
+					}
+
+					// Không action hợp lệ → mảng rỗng
 					return arr;
 				}
+			);
 
-				return "{\"success\": false, \"message\": \"Unknown library action\"}";
-			}
-		);
-
-		// ================== 7) GỢI Ý BÀI HÁT ==================
-		// Gộp: suggest_next, suggest_similar
-		AddTool(
-			"self.sdmusic.suggest",
-			"Song suggestion based on history / similarity.\n"
-			"action = next | similar\n"
-			"  next:    uses `max_results`\n"
-			"  similar: uses `keyword` + `max_results`",
-			PropertyList({
-				Property("action",      kPropertyTypeString),
-				Property("keyword",     kPropertyTypeString),
-				Property("max_results", kPropertyTypeInteger, 5, 1, 50)
-			}),
-			[sd_music](const PropertyList& props) -> ReturnValue {
-				cJSON* arr = cJSON_CreateArray();
-				std::string action  = props["action"].value<std::string>();
-
-				if (!sd_music) return arr;
-
-				std::string keyword = props["keyword"].value<std::string>();
-				int max_results     = props["max_results"].value<int>();
-				if (max_results <= 0) max_results = 5;
-
-				auto ensure_playlist = [sd_music]() {
-					if (sd_music->getTotalTracks() == 0) {
-						sd_music->loadTrackList();
-					}
-				};
-				ensure_playlist();
-
-				auto add_track_to_array = [arr](const Esp32SdMusic::TrackInfo& t) {
+			// ================== 9) PROGRESS ==================
+			// Nâng cấp: thêm track_path
+			AddTool(
+				"self.sdmusic.progress",
+				"Get current playback progress and duration.",
+				PropertyList(),
+				[](const PropertyList&) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
 					cJSON* o = cJSON_CreateObject();
-					cJSON_AddStringToObject(o, "name",  t.name.c_str());
-					cJSON_AddStringToObject(o, "path",  t.path.c_str());
-					cJSON_AddStringToObject(o, "title", t.title.c_str());
-					cJSON_AddStringToObject(o, "artist", t.artist.c_str());
-					cJSON_AddStringToObject(o, "album",  t.album.c_str());
-					cJSON_AddStringToObject(o, "genre",  t.genre.c_str());
-					cJSON_AddStringToObject(o, "year",   t.year.c_str());
-					cJSON_AddNumberToObject(o, "track_number", t.track_number);
-					cJSON_AddNumberToObject(o, "duration_ms",  t.duration_ms);
-					cJSON_AddNumberToObject(o, "bitrate_kbps", t.bitrate_kbps);
-					bool has_cover = (t.cover_size > 0);
-					cJSON_AddBoolToObject(o, "has_cover", has_cover);
-					cJSON_AddNumberToObject(o, "cover_size", (int)t.cover_size);
-					cJSON_AddStringToObject(o, "cover_mime", t.cover_mime.c_str());
-					cJSON_AddItemToArray(arr, o);
-				};
-
-				if (action == "next") {
-					auto list = sd_music->suggestNextTracks((size_t)max_results);
-					for (auto& t : list) {
-						add_track_to_array(t);
+					if (!sd) {
+						cJSON_AddNumberToObject(o, "position_ms", 0);
+						cJSON_AddNumberToObject(o, "duration_ms", 0);
+						cJSON_AddStringToObject(o, "state", "stopped");
+						cJSON_AddNumberToObject(o, "bitrate_kbps", 0);
+						cJSON_AddStringToObject(o, "position_str", "00:00");
+						cJSON_AddStringToObject(o, "duration_str", "00:00");
+						cJSON_AddStringToObject(o, "track_name", "");
+						cJSON_AddStringToObject(o, "track_path", "");
+						return o;
 					}
-					return arr;
-				}
 
-				if (action == "similar") {
-					auto list = sd_music->suggestSimilarTo(keyword, (size_t)max_results);
-					for (auto& t : list) {
-						add_track_to_array(t);
+					auto prog  = sd->updateProgress();
+					auto state = sd->getState();
+					int  br    = sd->getBitrate();
+
+					const char* s = "unknown";
+					switch (state) {
+						case SdMusic::PlayerState::Stopped:   s = "stopped";   break;
+						case SdMusic::PlayerState::Preparing: s = "preparing"; break;
+						case SdMusic::PlayerState::Playing:   s = "playing";   break;
+						case SdMusic::PlayerState::Paused:    s = "paused";    break;
+						case SdMusic::PlayerState::Error:     s = "error";     break;
 					}
-					return arr;
-				}
 
-				// Không action hợp lệ → mảng rỗng
-				return arr;
-			}
-		);
-
-		// ================== 8) PROGRESS ==================
-		// Nâng cấp: thêm track_path
-		AddTool(
-			"self.sdmusic.progress",
-			"Get current playback progress and duration.",
-			PropertyList(),
-			[sd_music](const PropertyList&) -> ReturnValue {
-				cJSON* o = cJSON_CreateObject();
-				if (!sd_music) {
-					cJSON_AddNumberToObject(o, "position_ms", 0);
-					cJSON_AddNumberToObject(o, "duration_ms", 0);
-					cJSON_AddStringToObject(o, "state", "stopped");
-					cJSON_AddNumberToObject(o, "bitrate_kbps", 0);
-					cJSON_AddStringToObject(o, "position_str", "00:00");
-					cJSON_AddStringToObject(o, "duration_str", "00:00");
-					cJSON_AddStringToObject(o, "track_name", "");
-					cJSON_AddStringToObject(o, "track_path", "");
+					cJSON_AddNumberToObject(o, "position_ms", (int)prog.position_ms);
+					cJSON_AddNumberToObject(o, "duration_ms", (int)prog.duration_ms);
+					cJSON_AddStringToObject(o, "state", s);
+					cJSON_AddNumberToObject(o, "bitrate_kbps", br);
+					cJSON_AddStringToObject(o, "position_str", sd->getCurrentTimeString().c_str());
+					cJSON_AddStringToObject(o, "duration_str", sd->getDurationString().c_str());
+					cJSON_AddStringToObject(o, "track_name", sd->getCurrentTrack().c_str());
+					cJSON_AddStringToObject(o, "track_path", sd->getCurrentTrackPath().c_str());
 					return o;
 				}
+			);
 
-				auto prog  = sd_music->updateProgress();
-				auto state = sd_music->getState();
-				int  br    = sd_music->getBitrate();
-
-				const char* s = "unknown";
-				switch (state) {
-					case Esp32SdMusic::PlayerState::Stopped:   s = "stopped";   break;
-					case Esp32SdMusic::PlayerState::Preparing: s = "preparing"; break;
-					case Esp32SdMusic::PlayerState::Playing:   s = "playing";   break;
-					case Esp32SdMusic::PlayerState::Paused:    s = "paused";    break;
-					case Esp32SdMusic::PlayerState::Error:     s = "error";     break;
-				}
-
-				cJSON_AddNumberToObject(o, "position_ms", (int)prog.position_ms);
-				cJSON_AddNumberToObject(o, "duration_ms", (int)prog.duration_ms);
-				cJSON_AddStringToObject(o, "state", s);
-				cJSON_AddNumberToObject(o, "bitrate_kbps", br);
-				cJSON_AddStringToObject(o, "position_str", sd_music->getCurrentTimeString().c_str());
-				cJSON_AddStringToObject(o, "duration_str", sd_music->getDurationString().c_str());
-				cJSON_AddStringToObject(o, "track_name", sd_music->getCurrentTrack().c_str());
-				cJSON_AddStringToObject(o, "track_path", sd_music->getCurrentTrackPath().c_str());
-				return o;
-			}
-		);
-
-		// ================== 9) THỂ LOẠI (GENRE PLAYLIST) ==================
-		AddTool(
-			"self.sdmusic.genre",
-			"Genre-based music operations.\n"
-			"action = search | play | play_index | next\n"
-			"  search:      list all tracks of a genre (needs `genre`)\n"
-			"  play:        build genre playlist and play first track\n"
-			"  play_index:  play the N-th track in genre playlist (needs `index`)\n"
-			"  next:        play next track within current genre playlist",
-			PropertyList({
-				Property("action", kPropertyTypeString),
-				Property("genre",  kPropertyTypeString),
-				Property("index",  kPropertyTypeInteger, 0, 0, 9999)
-			}),
-			[sd_music](const PropertyList& props) -> ReturnValue {
-				// [FIXED] Sử dụng Board thay vì Application
-				auto sd = Board::GetInstance().GetSdMusic();
-				if (!sd) {
-					return "{\"success\": false, \"message\": \"SD music module not available\"}";
-				}
-
-				std::string action = props["action"].value<std::string>();
-				std::string genre  = props["genre"].value<std::string>();
-
-				auto ensure_playlist = [sd_music]() {
-					if (sd_music->getTotalTracks() == 0)
-						sd_music->loadTrackList();
-				};
-				ensure_playlist();
-
-				// Helper: lowercase ASCII only
-				auto ascii_lower = [](std::string s) {
-					for (char &c : s) {
-						unsigned char u = (unsigned char)c;
-						if (u < 128) c = std::tolower(u);
+			// ================== 10) THỂ LOẠI (GENRE PLAYLIST) ==================
+			AddTool(
+				"self.sdmusic.genre",
+				"Genre-based music operations.\n"
+				"action = search | play | play_index | next\n"
+				"  search:      list all tracks of a genre (needs `genre`)\n"
+				"  play:        build genre playlist and play first track\n"
+				"  play_index:  play the N-th track in genre playlist (needs `index`)\n"
+				"  next:        play next track within current genre playlist",
+				PropertyList({
+					Property("action", kPropertyTypeString),
+					Property("genre",  kPropertyTypeString),
+					Property("index",  kPropertyTypeInteger, 0, 0, 9999)
+				}),
+				[](const PropertyList& props) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
+					if (!sd) {
+						return "{\"success\": false, \"message\": \"SD music module not available\"}";
 					}
-					return s;
-				};
 
-				// ---------------------- SEARCH GENRE ----------------------
-				if (action == "search") {
-					cJSON* arr = cJSON_CreateArray();
-					if (genre.empty()) return arr;
+					std::string action = props["action"].value<std::string>();
+					std::string genre  = props["genre"].value<std::string>();
 
-					auto all = sd_music->listTracks();
-					std::string low = ascii_lower(genre);
+					auto ensure_playlist = [sd]() {
+						if (sd->getTotalTracks() == 0)
+							sd->loadTrackList();
+					};
+					ensure_playlist();
 
-					for (auto& t : all) {
-						std::string g = ascii_lower(t.genre);
-
-						if (g.find(low) != std::string::npos) {
-							cJSON* o = cJSON_CreateObject();
-							cJSON_AddStringToObject(o, "name",   t.name.c_str());
-							cJSON_AddStringToObject(o, "path",   t.path.c_str());
-							cJSON_AddStringToObject(o, "artist", t.artist.c_str());
-							cJSON_AddStringToObject(o, "album",  t.album.c_str());
-							cJSON_AddStringToObject(o, "genre",  t.genre.c_str());
-							cJSON_AddNumberToObject(o, "duration_ms", t.duration_ms);
-							cJSON_AddItemToArray(arr, o);
+					// Helper: lowercase ASCII only
+					auto ascii_lower = [](std::string s) {
+						for (char &c : s) {
+							unsigned char u = (unsigned char)c;
+							if (u < 128) c = std::tolower(u);
 						}
+						return s;
+					};
+
+					// ---------------------- SEARCH GENRE ----------------------
+					if (action == "search") {
+						cJSON* arr = cJSON_CreateArray();
+						if (genre.empty()) return arr;
+
+						auto all = sd->listTracks();
+						std::string low = ascii_lower(genre);
+
+						for (auto& t : all) {
+							std::string g = ascii_lower(t.genre);
+
+							if (g.find(low) != std::string::npos) {
+								cJSON* o = cJSON_CreateObject();
+								cJSON_AddStringToObject(o, "name",   t.name.c_str());
+								cJSON_AddStringToObject(o, "path",   t.path.c_str());
+								cJSON_AddStringToObject(o, "artist", t.artist.c_str());
+								cJSON_AddStringToObject(o, "album",  t.album.c_str());
+								cJSON_AddStringToObject(o, "genre",  t.genre.c_str());
+								cJSON_AddNumberToObject(o, "duration_ms", t.duration_ms);
+								cJSON_AddItemToArray(arr, o);
+							}
+						}
+						return arr;
+					}
+
+					// ---------------------- PLAY GENRE ------------------------
+					if (action == "play") {
+						if (genre.empty())
+							return "{\"success\": false, \"message\": \"Genre cannot be empty\"}";
+
+						if (!sd->buildGenrePlaylist(genre))
+							return "{\"success\": false, \"message\": \"No tracks found for this genre\"}";
+
+						bool ok = sd->playGenreIndex(0);
+						return ok
+							? "{\"success\": true, \"message\": \"Playing first track of genre\"}"
+							: "{\"success\": false, \"message\": \"Failed to play genre\"}";
+					}
+
+					// ---------------------- PLAY BY INDEX ---------------------
+					if (action == "play_index") {
+						int index = props["index"].value<int>();
+						bool ok = sd->playGenreIndex(index);
+						return ok
+							? "{\"success\": true, \"message\": \"Playing track in genre list\"}"
+							: "{\"success\": false, \"message\": \"Index invalid or genre list empty\"}";
+					}
+
+					// ---------------------- NEXT GENRE TRACK ------------------
+					if (action == "next") {
+						bool ok = sd->playNextGenre();
+						return ok
+							? "{\"success\": true, \"message\": \"Playing next track in genre\"}"
+							: "{\"success\": false, \"message\": \"No next track or no active genre mode\"}";
+					}
+
+					return "{\"success\": false, \"message\": \"Unknown genre action\"}";
+				}
+			);
+
+			// ================== 11) LIỆT KÊ GENRE SẴN CÓ ==================
+			// Tool mới: trả danh sách tất cả genre duy nhất trong thư viện hiện tại
+			AddTool(
+				"self.sdmusic.genre_list",
+				"List all unique genres available in the current SD music library.",
+				PropertyList(),
+				[](const PropertyList&) -> ReturnValue {
+					auto sd = Board::GetInstance().GetSdMusic();
+					cJSON* arr = cJSON_CreateArray();
+					if (!sd) {
+						return arr; // mảng rỗng nếu module không có
+					}
+
+					// Đảm bảo playlist đã load để listGenres() có dữ liệu
+					if (sd->getTotalTracks() == 0) {
+						sd->loadTrackList();
+					}
+
+					auto genres = sd->listGenres();
+					for (auto& g : genres) {
+						cJSON_AddItemToArray(arr, cJSON_CreateString(g.c_str()));
 					}
 					return arr;
 				}
+			);
+		}
 
-				// ---------------------- PLAY GENRE ------------------------
-				if (action == "play") {
-					if (genre.empty())
-						return "{\"success\": false, \"message\": \"Genre cannot be empty\"}";
-
-					if (!sd_music->buildGenrePlaylist(genre))
-						return "{\"success\": false, \"message\": \"No tracks found for this genre\"}";
-
-					bool ok = sd_music->playGenreIndex(0);
-					return ok
-						? "{\"success\": true, \"message\": \"Playing first track of genre\"}"
-						: "{\"success\": false, \"message\": \"Failed to play genre\"}";
-				}
-
-				// ---------------------- PLAY BY INDEX ---------------------
-				if (action == "play_index") {
-					int index = props["index"].value<int>();
-					bool ok = sd_music->playGenreIndex(index);
-					return ok
-						? "{\"success\": true, \"message\": \"Playing track in genre list\"}"
-						: "{\"success\": false, \"message\": \"Index invalid or genre list empty\"}";
-				}
-
-				// ---------------------- NEXT GENRE TRACK ------------------
-				if (action == "next") {
-					bool ok = sd_music->playNextGenre();
-					return ok
-						? "{\"success\": true, \"message\": \"Playing next track in genre\"}"
-						: "{\"success\": false, \"message\": \"No next track or no active genre mode\"}";
-				}
-
-				return "{\"success\": false, \"message\": \"Unknown genre action\"}";
-			}
-		);
-
-		// ================== 10) LIỆT KÊ GENRE SẴN CÓ ==================
-		// Tool mới: trả danh sách tất cả genre duy nhất trong thư viện hiện tại
-		AddTool(
-			"self.sdmusic.genre_list",
-			"List all unique genres available in the current SD music library.",
-			PropertyList(),
-			[sd_music](const PropertyList&) -> ReturnValue {
-				cJSON* arr = cJSON_CreateArray();
-				if (!sd_music) {
-					return arr; // mảng rỗng nếu module không có
-				}
-
-				// Đảm bảo playlist đã load để listGenres() có dữ liệu
-				if (sd_music->getTotalTracks() == 0) {
-					sd_music->loadTrackList();
-				}
-
-				auto genres = sd_music->listGenres();
-				for (auto& g : genres) {
-					cJSON_AddItemToArray(arr, cJSON_CreateString(g.c_str()));
-				}
-				return arr;
-			}
-		);
-	}
+		auto radio = board.GetRadio();
+		if (radio) {		
+			AddTool("self.radio.play_station",
+					"Search and play a radio station with intelligent fuzzy search and user guidance.\n"
+					"This tool handles Vietnamese and English station names, provides smart suggestions, and guides users through selection.\n"
 		
+					"SEARCH RULES (CRITICAL):\n"
+					"1. EXACT STATION: If user names specific station (e.g., 'VOV1', 'BBC World', 'VOH 99.9'), use that exact name\n"
+					"2. COUNTRY/GENRE: If user asks for country/genre (e.g., 'đài Trung Quốc', 'nhạc Jazz', 'đài Hàn Quốc'), use ENGLISH keyword ('China', 'Jazz', 'Korea')\n"
+					"3. MAPPINGS: 'VOH 99'→'VOH 99.9', 'VUH'→'VOH', 'PPC'→'BBC', 'VOV một/mốt/mút/mụt'→'VOV1'\n"
+					"4. NEVER guess specific station names for country/genre searches\n"
+					
+					"RESPONSE GUIDELINES:\n"
+					"- SINGLE MATCH: Auto-play and confirm: 'Đang phát [Station Name]'\n"
+					"- MULTIPLE MATCHES: Present numbered list and ask for choice\n"
+					"- NO MATCHES: Offer helpful suggestions and alternatives\n"
+					
+					"USER INTERACTION EXAMPLES:\n"
+					"User: 'Bật VOV1' → AI: 'Đang phát VOV1'\n"
+					"User: 'Tìm đài Trung Quốc' → AI: 'Tìm thấy 5 đài Trung Quốc: 1. CRI China Plus, 2. ... Bạn chọn đài nào?'\n"
+					"User: 'Không tìm thấy' → AI: 'Thử từ khóa chung hơn như 'China' hoặc kiểm tra chính tả nhé'\n"
+					
+					"Args:\n"
+					"  `station_name`: Search keyword (station name, country, or genre)",
+					
+					PropertyList({
+						Property("station_name", kPropertyTypeString)
+					}),
+					[radio](const PropertyList &properties) -> ReturnValue {
+						auto query = properties["station_name"].value<std::string>();										
+						auto* esp_radio = static_cast<Esp32Radio*>(radio);
+						if (!esp_radio) {
+							return "{\"success\": false, \"message\": \"Radio error: invalid instance.\"}";
+						}
+
+						// Gọi hàm từ lớp con Esp32Radio
+						auto stations = esp_radio->SearchStations(query);
+
+						if (stations.empty()) {
+							return "{\"success\": false, \"message\": \"Không tìm thấy đài nào cho '" + query + "'. Thử từ khóa chung hơn hoặc kiểm tra chính tả nhé.\"}";
+						}
+
+						if (stations.size() == 1) {
+							radio->PlayUrl(stations[0].url, stations[0].name);
+							return "{\"success\": true, \"message\": \"Đang phát: " + stations[0].name + "\"}";
+						}
+
+						for (const auto& s : stations) {
+							if (strcasecmp(s.name.c_str(), query.c_str()) == 0) {
+								radio->PlayUrl(s.url, s.name);
+								return "{\"success\": true, \"message\": \"Tìm thấy chính xác. Đang phát: " + s.name + "\"}";
+							}
+						}
+
+						std::string result_json = "{\"success\": true, \"message\": \"Tìm thấy nhiều đài. Hãy đọc danh sách này và hỏi người dùng chọn:\", \"stations\": [";
+						
+						for (size_t i = 0; i < stations.size() && i < 10; ++i) {
+							result_json += "{\"name\": \"" + stations[i].name + "\", \"url\": \"" + stations[i].url + "\"}";
+							if (i < stations.size() - 1 && i < 9) result_json += ", ";
+						}
+						result_json += "]}";
+						
+						return result_json;
+					});
+		}
+			
+			AddTool("self.radio.play_url",
+					"Play a radio stream from a custom URL. Use this tool when user provides a specific radio stream URL.\n"
+					"Args:\n"
+					"  `url`: The URL of the radio stream to play (required).\n"
+					"  `name`: Custom name for the radio station (optional).\n"
+					"Return:\n"
+					"  Playback status information. Starts playing the radio stream immediately.",
+					PropertyList({
+						Property("url", kPropertyTypeString),     // Stream URL (required)
+						Property("name", kPropertyTypeString, "") // Station name (optional)
+					}),
+					[radio](const PropertyList &properties) -> ReturnValue
+					{
+						auto url = properties["url"].value<std::string>();
+						auto name = properties["name"].value<std::string>();
+
+						if (!radio->PlayUrl(url, name))
+						{
+							return "{\"success\": false, \"message\": \"Failed to play radio stream from URL: " + url + "\"}";
+						}
+						return "{\"success\": true, \"message\": \"Radio stream started playing\"}";
+					});
+
+			AddTool("self.radio.stop",
+					"Stop the currently playing radio stream.\n"
+					"Return:\n"
+					"  Stop status information.",
+					PropertyList(),
+					[radio](const PropertyList &properties) -> ReturnValue {
+						if (!radio->Stop())
+						{
+							return "{\"success\": false, \"message\": \"Failed to stop radio\"}";
+						}
+						return "{\"success\": true, \"message\": \"Radio stopped\"}";
+					});
+
+			AddTool("self.radio.get_stations",
+					"Get the list of PRESET (hardcoded) radio stations stored on the device.\n"
+					"Return:\n"
+					"  JSON array of available radio stations.",
+					PropertyList(),
+					[radio](const PropertyList &properties) -> ReturnValue {
+						auto stations = radio->GetStationList();
+						std::string result = "{\"success\": true, \"stations\": [";
+						for (size_t i = 0; i < stations.size(); ++i) {
+							result += "\"" + stations[i] + "\"";
+							if (i < stations.size() - 1) {
+								result += ", ";
+							}
+						}
+						result += "]}";
+						return result;
+					});
+
+			AddTool("self.radio.set_display_mode",
+					"Set the display mode for radio playback. You can choose to display spectrum or station info.\n"
+					"Args:\n"
+					"  `mode`: Display mode, options are 'spectrum' or 'info'.\n"
+					"Return:\n"
+					"  Setting result information.",
+					PropertyList({
+						Property("mode", kPropertyTypeString) // Display mode: "spectrum" or "info"
+					}),
+					[radio](const PropertyList &properties) -> ReturnValue {
+						auto mode_str = properties["mode"].value<std::string>();
+
+						// Convert to lowercase for comparison
+						std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
+
+						if (mode_str == "spectrum")
+						{
+							// Set to spectrum display mode
+							auto esp32_radio = static_cast<Esp32Radio *>(radio);
+							esp32_radio->SetDisplayMode(Esp32Radio::DISPLAY_MODE_SPECTRUM);
+							return "{\"success\": true, \"message\": \"Switched to spectrum display mode\"}";
+						}
+						else if (mode_str == "info")
+						{
+							// Set to info display mode
+							auto esp32_radio = static_cast<Esp32Radio *>(radio);
+							esp32_radio->SetDisplayMode(Esp32Radio::DISPLAY_MODE_INFO);
+							return "{\"success\": true, \"message\": \"Switched to info display mode\"}";
+						}
+						else
+						{
+							return "{\"success\": false, \"message\": \"Invalid display mode, please use 'spectrum' or 'info'\"}";
+						}
+					});
+	
     // Restore the original tools list to the end of the tools list
     tools_.insert(tools_.end(), original_tools.begin(), original_tools.end());
 }
@@ -1244,7 +1228,6 @@ void McpServer::AddUserOnlyTools() {
             
             auto& app = Application::GetInstance();
             app.Schedule([url, &app]() {
-                // SỬA ĐỔI: Gọi trực tiếp UpgradeFirmware với URL
                 bool success = app.UpgradeFirmware(url);
                 if (!success) {
                     ESP_LOGE(TAG, "Firmware upgrade failed");
