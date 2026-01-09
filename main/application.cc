@@ -10,11 +10,7 @@
 #include "assets.h"
 #include "settings.h"
 #include "sd_mount.h"
-
-// Media Includes to access specific methods
 #include "esp32_music.h"
-
-// Optional weather subsystem
 #include "weather_service.h"
 
 #include <cstring>
@@ -33,7 +29,6 @@
 #include "freertos/task.h"
 
 #define TAG "Application"
-
 
 Application::Application() {
     event_group_ = xEventGroupCreate();
@@ -62,7 +57,6 @@ Application::Application() {
 }
 
 Application::~Application() {
-    // Stop idle overlay timer (weather <-> lunar rotation)
     if (idle_overlay_timer_ != nullptr) {
         esp_timer_stop(idle_overlay_timer_);
         esp_timer_delete(idle_overlay_timer_);
@@ -83,13 +77,9 @@ void Application::Initialize() {
     auto& board = Board::GetInstance();
     SetDeviceState(kDeviceStateStarting);
 
-    // Setup the display
     auto display = board.GetDisplay();
-
-    // Print board name/version info
     display->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
 
-    // Setup the audio service
     auto codec = board.GetAudioCodec();
     audio_service_.Initialize(codec);
     audio_service_.Start();
@@ -106,21 +96,17 @@ void Application::Initialize() {
     };
     audio_service_.SetCallbacks(callbacks);
 
-    // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
         OnStateChanged(old_state, new_state);
         xEventGroupSetBits(event_group_, MAIN_EVENT_STATE_CHANGED);
     });
 
-    // Start the clock timer to update the status bar
     esp_timer_start_periodic(clock_timer_handle_, 1000000);
 
-    // Add MCP common tools (only once during initialization)
     auto& mcp_server = McpServer::GetInstance();
     mcp_server.AddCommonTools();
     mcp_server.AddUserOnlyTools();
 
-    // Set network event callback for UI updates and network state handling
     board.SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
         auto display = Board::GetInstance().GetDisplay();
         
@@ -131,10 +117,8 @@ void Application::Initialize() {
                 break;
             case NetworkEvent::Connecting: {
                 if (data.empty()) {
-                    // Cellular network - registering without carrier info yet
                     display->SetStatus(Lang::Strings::REGISTERING_NETWORK);
                 } else {
-                    // WiFi or cellular with carrier info
                     std::string msg = Lang::Strings::CONNECT_TO;
                     msg += data;
                     msg += "...";
@@ -153,12 +137,9 @@ void Application::Initialize() {
                 xEventGroupSetBits(event_group_, MAIN_EVENT_NETWORK_DISCONNECTED);
                 break;
             case NetworkEvent::WifiConfigModeEnter:
-                // WiFi config mode enter is handled by WifiBoard internally
                 break;
             case NetworkEvent::WifiConfigModeExit:
-                // WiFi config mode exit is handled by WifiBoard internally
                 break;
-            // Cellular modem specific events
             case NetworkEvent::ModemDetecting:
                 display->SetStatus(Lang::Strings::DETECTING_MODULE);
                 break;
@@ -178,17 +159,14 @@ void Application::Initialize() {
         }
     });
 
-    // Start network asynchronously
     board.StartNetwork();
 
-    // MOUNT SD CARD (optional)
     ESP_LOGI(TAG, "Initializing SD card...");
     SdMount::GetInstance().Init();
     if (auto sd = board.GetSdMusic()) {
         sd->loadTrackList();
     }
 
-    // Update the status bar immediately to show the network state
     display->UpdateStatusBar(true);
 }
 
@@ -277,15 +255,11 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
         
-            // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
             }
             
-            // --- WATCHDOG: Force WiFi Performance Mode if Media is Playing ---
-            // This prevents the radio from stuttering or disconnecting due to power save
-            // switching logic in other parts of the application.
-            if (clock_ticks_ % 2 == 0) { // Check every 2 seconds
+            if (clock_ticks_ % 2 == 0) {
                 if (IsMediaPlaying()) {
                     wifi_ps_type_t current_ps;
                     esp_wifi_get_ps(&current_ps);
@@ -294,11 +268,16 @@ void Application::Run() {
                         Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
                     }
                     
-                    // EXTRA WATCHDOG: Ensure weather service is dead when media is playing
-                    // to prevent RAM starvation
                     if (weather_service_) {
                         StopWeatherSubsystem();
                     }
+                }
+            }
+
+            if (GetDeviceState() == kDeviceStateIdle && clock_ticks_ == 3) {
+                if (!IsMediaPlaying()) {
+                    StartWeatherSubsystemIfReady();
+                    StartIdleOverlayRotation();
                 }
             }
         }
@@ -311,7 +290,6 @@ void Application::HandleNetworkConnectedEvent() {
     auto state = GetDeviceState();
 
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring) {
-        // Network is ready, start activation
         SetDeviceState(kDeviceStateActivating);
         if (activation_task_handle_ != nullptr) {
             ESP_LOGW(TAG, "Activation task already running");
@@ -326,38 +304,22 @@ void Application::HandleNetworkConnectedEvent() {
         }, "activation", 4096 * 2, this, 2, &activation_task_handle_);
     }
 
-    // Update the status bar immediately to show the network state
     auto display = Board::GetInstance().GetDisplay();
     display->UpdateStatusBar(true);
-
-    // Start weather subsystem when possible (avoids extra traffic during activation)
-    StartWeatherSubsystemIfReady();
 }
 
 void Application::HandleNetworkDisconnectedEvent() {
     network_connected_ = false;
     StopWeatherSubsystem();
 
-    // If we are idle, fallback to lunar overlay immediately.
-    // BUT only if media is not playing. If media is playing, keep the spectrum.
-    if (GetDeviceState() == kDeviceStateIdle && !IsMediaPlaying()) {
-        auto display = Board::GetInstance().GetDisplay();
-        if (display) {
-            display->InitLunarWidget();
-            display->ShowLunarWidget();
-            display->HideWeatherWidget();
-            idle_overlay_show_weather_ = false;
-        }
-    }
+    // Removed logic: If we are idle, fallback to lunar overlay immediately.
 
-    // Close current conversation when network disconnected
     auto state = GetDeviceState();
     if (state == kDeviceStateConnecting || state == kDeviceStateListening || state == kDeviceStateSpeaking) {
         ESP_LOGI(TAG, "Closing audio channel due to network disconnection");
         protocol_->CloseAudioChannel();
     }
 
-    // Update the status bar immediately to show the network state
     auto display = Board::GetInstance().GetDisplay();
     display->UpdateStatusBar(true);
 }
@@ -375,43 +337,29 @@ void Application::HandleActivationDoneEvent() {
     display->ShowNotification(message.c_str());
     display->SetChatMessage("system", "");
 
-    // Play the success sound to indicate the device is ready
     audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
 
-    // Release OTA object after activation is complete
     ota_.reset();
     auto& board = Board::GetInstance();
     
-    // FIX: Only set low power if NOT playing media
     if (IsMediaPlaying()) {
         board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
     } else {
         board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
     }
-
-    // Weather is primarily intended for the idle "screen saver" state.
-    StartWeatherSubsystemIfReady();
 }
 
 void Application::ActivationTask() {
-    // Create OTA object for activation process
     ota_ = std::make_unique<Ota>();
 
-    // Check for new assets version
     CheckAssetsVersion();
-
-    // Check for new firmware version
     CheckNewVersion();
-
-    // Initialize the protocol
     InitializeProtocol();
 
-    // Signal completion to main loop
     xEventGroupSetBits(event_group_, MAIN_EVENT_ACTIVATION_DONE);
 }
 
 void Application::CheckAssetsVersion() {
-    // Only allow CheckAssetsVersion to be called once
     if (assets_version_checked_) {
         return;
     }
@@ -427,7 +375,6 @@ void Application::CheckAssetsVersion() {
     }
     
     Settings settings("assets", true);
-    // Check if there is a new assets need to be downloaded
     std::string download_url = settings.GetString("download_url");
 
     if (!download_url.empty()) {
@@ -437,7 +384,6 @@ void Application::CheckAssetsVersion() {
         snprintf(message, sizeof(message), Lang::Strings::FOUND_NEW_ASSETS, download_url.c_str());
         Alert(Lang::Strings::LOADING_ASSETS, message, "cloud_arrow_down", Lang::Sounds::OGG_UPGRADE);
         
-        // Wait for the audio service to be idle for 3 seconds
         vTaskDelay(pdMS_TO_TICKS(3000));
         SetDeviceState(kDeviceStateUpgrading);
         board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
@@ -462,7 +408,6 @@ void Application::CheckAssetsVersion() {
         }
     }
 
-    // Apply assets
     assets.Apply();
     display->SetChatMessage("system", "");
     display->SetEmotion("microchip_ai");
@@ -471,7 +416,7 @@ void Application::CheckAssetsVersion() {
 void Application::CheckNewVersion() {
     const int MAX_RETRY = 10;
     int retry_count = 0;
-    int retry_delay = 10; // Initial retry delay in seconds
+    int retry_delay = 10;
 
     auto& board = Board::GetInstance();
     while (true) {
@@ -499,33 +444,28 @@ void Application::CheckNewVersion() {
                     break;
                 }
             }
-            retry_delay *= 2; // Double the retry delay
+            retry_delay *= 2;
             continue;
         }
         retry_count = 0;
-        retry_delay = 10; // Reset retry delay
+        retry_delay = 10;
 
         if (ota_->HasNewVersion()) {
             if (UpgradeFirmware(ota_->GetFirmwareUrl(), ota_->GetFirmwareVersion())) {
-                return; // This line will never be reached after reboot
+                return;
             }
-            // If upgrade failed, continue to normal operation
         }
 
-        // No new version, mark the current version as valid
         ota_->MarkCurrentVersionValid();
         if (!ota_->HasActivationCode() && !ota_->HasActivationChallenge()) {
-            // Exit the loop if done checking new version
             break;
         }
 
         display->SetStatus(Lang::Strings::ACTIVATION);
-        // Activation code is shown to the user and waiting for the user to input
         if (ota_->HasActivationCode()) {
             ShowActivationCode(ota_->GetActivationCode(), ota_->GetActivationMessage());
         }
 
-        // This will block the loop until the activation is done or timeout
         for (int i = 0; i < 10; ++i) {
             ESP_LOGI(TAG, "Activating... %d/%d", i + 1, 10);
             esp_err_t err = ota_->Activate();
@@ -583,12 +523,9 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnAudioChannelClosed([this, &board]() {
-        // FIX: Check if media is playing before setting low power
-        // The radio/music needs PERFORMANCE mode to stream smoothly (especially HTTPS/HLS)
         if (!IsMediaPlaying()) {
             board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         } else {
-            // Force it again just to be safe
             board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
             ESP_LOGI(TAG, "Media is playing, keeping PERFORMANCE power level.");
         }
@@ -601,7 +538,6 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnIncomingJson([this, display](const cJSON* root) {
-        // Parse JSON data
         auto type = cJSON_GetObjectItem(root, "type");
         if (strcmp(type->valuestring, "tts") == 0) {
             auto state = cJSON_GetObjectItem(root, "state");
@@ -654,7 +590,6 @@ void Application::InitializeProtocol() {
             if (cJSON_IsString(command)) {
                 ESP_LOGI(TAG, "System command: %s", command->valuestring);
                 if (strcmp(command->valuestring, "reboot") == 0) {
-                    // Do a reboot if user requests a OTA update
                     Schedule([this]() {
                         Reboot();
                     });
@@ -709,7 +644,6 @@ void Application::ShowActivationCode(const std::string& code, const std::string&
         digit_sound{'9', Lang::Sounds::OGG_9}
     }};
 
-    // This sentence uses 9KB of SRAM, so we need to wait for it to finish
     Alert(Lang::Strings::ACTIVATION, message.c_str(), "link", Lang::Sounds::OGG_ACTIVATION);
 
     for (const auto& digit : code) {
@@ -756,7 +690,6 @@ void Application::StopListening() {
 void Application::HandleToggleChatEvent() {
     auto state = GetDeviceState();
     
-    // KILL WEATHER SERVICE to save RAM for Voice/Radio
     StopWeatherSubsystem();
     
     if (state == kDeviceStateActivating) {
@@ -796,7 +729,6 @@ void Application::HandleToggleChatEvent() {
 void Application::HandleStartListeningEvent() {
     auto state = GetDeviceState();
     
-    // KILL WEATHER SERVICE to save RAM for Voice/Radio
     StopWeatherSubsystem();
 
     if (state == kDeviceStateActivating) {
@@ -850,7 +782,6 @@ void Application::HandleWakeWordDetectedEvent() {
 
     auto state = GetDeviceState();
     
-    // KILL WEATHER SERVICE to save RAM for Voice/Radio
     StopWeatherSubsystem();
 
     if (state == kDeviceStateIdle) {
@@ -867,23 +798,18 @@ void Application::HandleWakeWordDetectedEvent() {
         auto wake_word = audio_service_.GetLastWakeWord();
         ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
 #if CONFIG_SEND_WAKE_WORD_DATA
-        // Encode and send the wake word data to the server
         while (auto packet = audio_service_.PopWakeWordPacket()) {
             protocol_->SendAudio(std::move(packet));
         }
-        // Set the chat state to wake word detected
         protocol_->SendWakeWordDetected(wake_word);
         SetListeningMode(aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime);
 #else
-        // Set flag to play popup sound after state changes to listening
-        // (PlaySound here would be cleared by ResetDecoder in EnableVoiceProcessing)
         play_popup_on_listening_ = true;
         SetListeningMode(aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime);
 #endif
     } else if (state == kDeviceStateSpeaking) {
         AbortSpeaking(kAbortReasonWakeWordDetected);
     } else if (state == kDeviceStateActivating) {
-        // Restart the activation check if the wake word is detected during activation
         SetDeviceState(kDeviceStateIdle);
     }
 }
@@ -914,15 +840,12 @@ void Application::HandleStateChangedEvent() {
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
 
-            // Make sure the audio processor is running
             if (!audio_service_.IsAudioProcessorRunning()) {
-                // Send the start listening command
                 protocol_->SendStartListening(listening_mode_);
                 audio_service_.EnableVoiceProcessing(true);
                 audio_service_.EnableWakeWordDetection(false);
             }
 
-            // Play popup sound after ResetDecoder (in EnableVoiceProcessing) has been called
             if (play_popup_on_listening_) {
                 play_popup_on_listening_ = false;
                 audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
@@ -933,7 +856,6 @@ void Application::HandleStateChangedEvent() {
 
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_service_.EnableVoiceProcessing(false);
-                // Only AFE wake word can be detected in speaking mode
                 audio_service_.EnableWakeWordDetection(audio_service_.IsAfeWakeWord());
             }
             audio_service_.ResetDecoder();
@@ -943,7 +865,6 @@ void Application::HandleStateChangedEvent() {
             audio_service_.EnableWakeWordDetection(false);
             break;
         default:
-            // Do nothing
             break;
     }
 }
@@ -965,23 +886,13 @@ static const char* DeviceStateToStringSafe(DeviceState state) {
 }
 
 void Application::OnStateChanged(DeviceState old_state, DeviceState new_state) {
-    // Stop audio sources when transitioning from idle to any other state
-    // UPGRADE: Only stop if we are transitioning to a state that needs exclusive audio (e.g., Listening/Speaking)
-    // If we are just idle, we can keep playing (handled by user logic elsewhere, but strict safety here).
-    
     if (old_state == kDeviceStateIdle && new_state != kDeviceStateIdle) {
         auto& board = Board::GetInstance();
 
-        // Check if we need to stop media.
-        // We stop media if we are going to: Connecting, Listening, Speaking, WifiConfig, etc.
-        // Practically all non-Idle states require attention.
-        
         ESP_LOGI(TAG, "Leaving Idle state (%s -> %s), stopping background media...",
                     DeviceStateToStringSafe(old_state), DeviceStateToStringSafe(new_state));
 
         if (auto music = board.GetMusic()) {
-            // Note: Use static_cast because Music interface might not have IsPlaying declared
-            // but we know it's an Esp32Music instance here.
             auto* esp_music = static_cast<Esp32Music*>(music);
             if (esp_music->IsPlaying() || music->IsDownloading()) {
                 music->StopStreaming();
@@ -1002,53 +913,27 @@ void Application::OnStateChanged(DeviceState old_state, DeviceState new_state) {
 
         if (auto display = board.GetDisplay()) {
             display->ClearQRCode();
+            display->HideLunarWidget();
+            display->HideWeatherWidget();
         }
 
-        // Stop overlay rotation and hide overlays when leaving idle.
         Schedule([this]() {
             StopIdleOverlayRotation();
-            // IMPORTANT: Stop the weather service logic completely to save RAM
             StopWeatherSubsystem();
         });
     }
 
-    // Show weather overlay when entering idle (if enabled/available).
     if (new_state == kDeviceStateIdle && old_state != kDeviceStateIdle) {
         Schedule([this]() {
-            // Check if media is playing (it shouldn't be, because we stopped it on exit, 
-            // but maybe user started it very fast or we want to be safe)
-            // If media is playing, do NOT show weather overlay, show Spectrum instead.
             if (IsMediaPlaying()) {
-                ESP_LOGI(TAG, "Entered Idle but Media is playing, skipping weather overlay.");
+                ESP_LOGI(TAG, "Entered Idle but Media is playing, skipping widgets.");
                 return;
             }
-
+            
             auto display = Board::GetInstance().GetDisplay();
-            if (!display) {
-                return;
+            if (display) {
+                display->InitLunarWidget(); 
             }
-
-            // Always ensure Lunar widget exists (works offline)
-            display->InitLunarWidget();
-
-            // Best-effort start weather subsystem (may no-op if offline)
-            StartWeatherSubsystemIfReady();
-
-            const bool weather_ready = network_connected_ && (weather_service_ != nullptr);
-            if (weather_ready) {
-                // Default: start on weather (requested)
-                idle_overlay_show_weather_ = true;
-                display->ShowWeatherWidget();
-                display->HideLunarWidget();
-            } else {
-                // Offline: stay on lunar
-                idle_overlay_show_weather_ = false;
-                display->ShowLunarWidget();
-                display->HideWeatherWidget();
-            }
-
-            // Start 3-minute rotation timer
-            StartIdleOverlayRotation();
         });
     }
 }
@@ -1074,28 +959,20 @@ void Application::SetListeningMode(ListeningMode mode) {
     SetDeviceState(kDeviceStateListening);
 }
 
-// -----------------------------------------------------------------------------
-// Media Status Helper
-// -----------------------------------------------------------------------------
 bool Application::IsMediaPlaying() {
     auto& board = Board::GetInstance();
     
-    // Check Radio
     if (auto radio = board.GetRadio()) {
         if (radio->IsPlaying()) return true;
-        // Fix: Also return true if downloading (buffering)
         if (radio->IsDownloading()) return true;
     }
 
-    // Check Online Music
     if (auto music = board.GetMusic()) {
-        // Cast to Esp32Music because base Music interface might not have IsPlaying
         auto* esp_music = static_cast<Esp32Music*>(music);
         if (esp_music && esp_music->IsPlaying()) return true;
         if (music->IsDownloading()) return true;
     }
 
-    // Check SD Music
     if (auto sd = board.GetSdMusic()) {
         if (sd->getState() == SdMusic::PlayerState::Playing) return true;
     }
@@ -1103,23 +980,17 @@ bool Application::IsMediaPlaying() {
     return false;
 }
 
-// -----------------------------------------------------------------------------
-// Weather subsystem (optional)
-// -----------------------------------------------------------------------------
-
 void Application::StartWeatherSubsystemIfReady() {
     if (!network_connected_) {
         return;
     }
 
-    // Avoid extra network requests while activating/upgrading.
     auto state = GetDeviceState();
     if (state == kDeviceStateStarting || state == kDeviceStateWifiConfiguring || state == kDeviceStateActivating ||
         state == kDeviceStateUpgrading) {
         return;
     }
 
-    // FIX: Do not start weather service if Media is playing to save RAM and Bandwidth
     if (IsMediaPlaying()) {
         ESP_LOGI(TAG, "Skipping Weather Subsystem start because Media is playing.");
         return;
@@ -1128,7 +999,6 @@ void Application::StartWeatherSubsystemIfReady() {
     if (!weather_service_) {
         weather_service_ = std::make_unique<WeatherService>();
 
-        // Wire callbacks (always hop back to main task for UI updates)
         weather_service_->OnWeatherUpdated([this](const WeatherData&) {
             Schedule([this]() {
                 if (auto display = Board::GetInstance().GetDisplay()) {
@@ -1140,7 +1010,6 @@ void Application::StartWeatherSubsystemIfReady() {
             Schedule([this, err]() {
                 ESP_LOGW(TAG, "Weather error: %s", err.c_str());
                 if (auto display = Board::GetInstance().GetDisplay()) {
-                    // Keep it unobtrusive: show a short notification only while idle
                     if (GetDeviceState() == kDeviceStateIdle) {
                         display->ShowNotification(err.c_str(), 3000);
                     }
@@ -1148,7 +1017,6 @@ void Application::StartWeatherSubsystemIfReady() {
             });
         });
 
-        // Initialize overlay on LCD displays
         if (auto display = Board::GetInstance().GetDisplay()) {
             display->InitWeatherWidget(weather_service_.get());
         }
@@ -1156,8 +1024,6 @@ void Application::StartWeatherSubsystemIfReady() {
 
     weather_service_->Start();
 
-    // If we are idle, show overlay; otherwise keep it hidden.
-    // UPGRADE: Only show if NO media is playing.
     if (auto display = Board::GetInstance().GetDisplay()) {
         if (GetDeviceState() == kDeviceStateIdle && !IsMediaPlaying()) {
             display->ShowWeatherWidget();
@@ -1171,15 +1037,10 @@ void Application::StopWeatherSubsystem() {
     if (auto display = Board::GetInstance().GetDisplay()) {
         display->HideWeatherWidget();
     }
-    // STOP the worker task and timers to free RAM/CPU
     if (weather_service_) {
         weather_service_->Stop();
     }
 }
-
-// -----------------------------------------------------------------------------
-// Idle overlay rotation (Weather <-> Lunar)
-// -----------------------------------------------------------------------------
 
 void Application::StartIdleOverlayRotation() {
     if (idle_overlay_timer_ == nullptr) {
@@ -1198,7 +1059,6 @@ void Application::StartIdleOverlayRotation() {
         }
     }
 
-    // 1 minute
 	esp_timer_stop(idle_overlay_timer_);
 	esp_timer_start_periodic(idle_overlay_timer_, 1ULL * 60ULL * 1000000ULL);
 }
@@ -1214,16 +1074,12 @@ void Application::IdleOverlayTimerCallback(void* arg) {
     if (!app) {
         return;
     }
-    // Always hop back to main task for UI updates
     app->Schedule([app]() {
         if (app->GetDeviceState() != kDeviceStateIdle) {
             return;
         }
 
-        // UPGRADE: Check if media is playing. If so, do NOT rotate overlay.
-        // We want to keep showing the Spectrum/Lyrics/Media Info.
         if (app->IsMediaPlaying()) {
-            // Ensure overlays are hidden just in case
             if (auto display = Board::GetInstance().GetDisplay()) {
                 display->HideWeatherWidget();
                 display->HideLunarWidget();
@@ -1238,8 +1094,7 @@ void Application::IdleOverlayTimerCallback(void* arg) {
 
         const bool weather_ready = app->network_connected_ && (app->weather_service_ != nullptr);
         if (!weather_ready) {
-            // Default behavior requested: stick to Lunar if weather is not available.
-            display->ShowLunarWidget();
+            // Modified: Do not show lunar widget if weather is not ready/no network
             display->HideWeatherWidget();
             app->idle_overlay_show_weather_ = false;
             return;
@@ -1258,7 +1113,6 @@ void Application::IdleOverlayTimerCallback(void* arg) {
 
 void Application::Reboot() {
     ESP_LOGI(TAG, "Rebooting...");
-    // Disconnect the audio channel
     if (protocol_ && protocol_->IsAudioChannelOpened()) {
         protocol_->CloseAudioChannel();
     }
@@ -1276,7 +1130,6 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     std::string upgrade_url = url;
     std::string version_info = version.empty() ? "(Manual upgrade)" : version;
 
-    // Close audio channel if it's open
     if (protocol_ && protocol_->IsAudioChannelOpened()) {
         ESP_LOGI(TAG, "Closing audio channel before firmware upgrade");
         protocol_->CloseAudioChannel();
@@ -1304,18 +1157,16 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     });
 
     if (!upgrade_success) {
-        // Upgrade failed, restart audio service and continue running
         ESP_LOGE(TAG, "Firmware upgrade failed, restarting audio service and continuing operation...");
-        audio_service_.Start(); // Restart audio service
-        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER); // Restore power save level
+        audio_service_.Start();
+        board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
         Alert(Lang::Strings::ERROR, Lang::Strings::UPGRADE_FAILED, "circle_xmark", Lang::Sounds::OGG_EXCLAMATION);
         vTaskDelay(pdMS_TO_TICKS(3000));
         return false;
     } else {
-        // Upgrade success, reboot immediately
         ESP_LOGI(TAG, "Firmware upgrade successful, rebooting...");
         display->SetChatMessage("system", "Upgrade successful, rebooting...");
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Brief pause to show message
+        vTaskDelay(pdMS_TO_TICKS(1000));
         Reboot();
         return true;
     }
@@ -1341,16 +1192,12 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
 
         ESP_LOGI(TAG, "Wake word detected: %s", wake_word.c_str());
 #if CONFIG_USE_AFE_WAKE_WORD || CONFIG_USE_CUSTOM_WAKE_WORD
-        // Encode and send the wake word data to the server
         while (auto packet = audio_service_.PopWakeWordPacket()) {
             protocol_->SendAudio(std::move(packet));
         }
-        // Set the chat state to wake word detected
         protocol_->SendWakeWordDetected(wake_word);
         SetListeningMode(aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime);
 #else
-        // Set flag to play popup sound after state changes to listening
-        // (PlaySound here would be cleared by ResetDecoder in EnableVoiceProcessing)
         play_popup_on_listening_ = true;
         SetListeningMode(aec_mode_ == kAecOff ? kListeningModeAutoStop : kListeningModeRealtime);
 #endif
@@ -1380,12 +1227,10 @@ bool Application::CanEnterSleepMode() {
         return false;
     }
 
-    // Now it is safe to enter sleep mode
     return true;
 }
 
 void Application::SendMcpMessage(const std::string& payload) {
-    // Always schedule to run in main task for thread safety
     Schedule([this, payload = std::move(payload)]() {
         if (protocol_) {
             protocol_->SendMcpMessage(payload);
@@ -1413,7 +1258,6 @@ void Application::SetAecMode(AecMode mode) {
             break;
         }
 
-        // If the AEC mode is changed, close the audio channel
         if (protocol_ && protocol_->IsAudioChannelOpened()) {
             protocol_->CloseAudioChannel();
         }
@@ -1425,12 +1269,10 @@ void Application::AddAudioData(AudioStreamPacket&& packet) {
 
     if (GetDeviceState() == kDeviceStateIdle && codec->output_enabled()) {
 
-        // Enforce WiFi PS = NONE trong lúc đang phát (tránh bị module khác kéo về MAX_MODEM)
-        // Rate-limit để không spam log nếu bị "giằng co"
         static int64_t last_ps_fix_us = 0;
         const int64_t now_us = esp_timer_get_time();
 
-        if ((now_us - last_ps_fix_us) > 200000) { // 200ms
+        if ((now_us - last_ps_fix_us) > 200000) {
             wifi_ps_type_t ps;
             if (esp_wifi_get_ps(&ps) == ESP_OK) {
                 if (ps != WIFI_PS_NONE) {
@@ -1440,16 +1282,13 @@ void Application::AddAudioData(AudioStreamPacket&& packet) {
             }
         }
 
-        // packet.payload contains raw PCM data (int16_t)
         if (packet.payload.size() >= sizeof(int16_t)) {
             size_t num_samples = packet.payload.size() / sizeof(int16_t);
             std::vector<int16_t> pcm_data(num_samples);
             memcpy(pcm_data.data(), packet.payload.data(), num_samples * sizeof(int16_t));
 
-            // Check if sample rate matches, if not, perform simple resampling
             if (packet.sample_rate != codec->output_sample_rate()) {
 
-                // Validate sample rate parameters
                 if (packet.sample_rate <= 0 || codec->output_sample_rate() <= 0) {
                     ESP_LOGE(TAG, "Invalid sample rates: %d -> %d",
                              packet.sample_rate, codec->output_sample_rate());
@@ -1462,18 +1301,14 @@ void Application::AddAudioData(AudioStreamPacket&& packet) {
                     ESP_LOGI(TAG, "Music playback: Switching sample rate from %d Hz to %d Hz",
                              codec->output_sample_rate(), packet.sample_rate);
 
-                    // Try to dynamically switch sample rate
                     if (codec->SetOutputSampleRate(packet.sample_rate)) {
                         ESP_LOGI(TAG, "Successfully switched to music playback sample rate: %d Hz",
                                  packet.sample_rate);
-                        // Giữ nguyên pcm_data
                     } else {
                         ESP_LOGW(TAG, "Cannot switch sample rate, continue using current sample rate: %d Hz",
                                  codec->output_sample_rate());
-                        // Nếu muốn downsample thật sự thì phải implement thêm ở đây
                     }
                 } else {
-                    // Upsampling: linear interpolation
                     float upsample_ratio = codec->output_sample_rate() / static_cast<float>(packet.sample_rate);
                     size_t expected_size = static_cast<size_t>(pcm_data.size() * upsample_ratio + 0.5f);
                     resampled.reserve(expected_size);
@@ -1506,12 +1341,10 @@ void Application::AddAudioData(AudioStreamPacket&& packet) {
                 }
             }
 
-            // Ensure audio output is enabled
             if (!codec->output_enabled()) {
                 codec->EnableOutput(true);
             }
 
-            // Send PCM data to audio codec
             codec->OutputData(pcm_data);
 
             audio_service_.UpdateOutputTimestamp();
@@ -1525,11 +1358,9 @@ void Application::PlaySound(const std::string_view& sound) {
 
 void Application::ResetProtocol() {
     Schedule([this]() {
-        // Close audio channel if opened
         if (protocol_ && protocol_->IsAudioChannelOpened()) {
             protocol_->CloseAudioChannel();
         }
-        // Reset protocol
         protocol_.reset();
     });
 }

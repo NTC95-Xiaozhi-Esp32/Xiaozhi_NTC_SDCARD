@@ -1038,70 +1038,25 @@ void McpServer::AddCommonTools() {
 		auto radio = board.GetRadio();
 		if (radio) {
 			AddTool("self.radio.play_station",
-					"Search and play a radio station with intelligent fuzzy search and user guidance.\n"
-					"This tool handles Vietnamese and English station names, provides smart suggestions, and guides users through selection.\n"
-		
-					"SEARCH RULES (CRITICAL):\n"
-					"1. EXACT STATION: If user names specific station (e.g., 'VOV1', 'BBC World', 'VOH 99.9'), use that exact name\n"
-					"2. COUNTRY/GENRE: If user asks for country/genre (e.g., 'đài Trung Quốc', 'nhạc Jazz', 'đài Hàn Quốc'), use ENGLISH keyword ('China', 'Jazz', 'Korea')\n"
-					"3. MAPPINGS: 'VOH 99'→'VOH 99.9', 'VUH'→'VOH', 'PPC'→'BBC', 'VOV một/mốt/mút/mụt'→'VOV1'\n"
-					"4. NEVER guess specific station names for country/genre searches\n"
-					
-					"RESPONSE GUIDELINES:\n"
-					"- SINGLE MATCH: Auto-play and confirm: 'Đang phát [Station Name]'\n"
-					"- MULTIPLE MATCHES: Present numbered list and ask for choice\n"
-					"- NO MATCHES: Offer helpful suggestions and alternatives\n"
-					
-					"USER INTERACTION EXAMPLES:\n"
-					"User: 'Bật VOV1' → AI: 'Đang phát VOV1'\n"
-					"User: 'Tìm đài Trung Quốc' → AI: 'Tìm thấy 5 đài Trung Quốc: 1. CRI China Plus, 2. ... Bạn chọn đài nào?'\n"
-					"User: 'Không tìm thấy' → AI: 'Thử từ khóa chung hơn như 'China' hoặc kiểm tra chính tả nhé'\n"
-					
+					"Play a radio station by name. Use this tool when user requests to play radio or listen to a specific station."
+					"VOV mộc/mốc/mốt/mậu/máu/một/mút/mót/mục means VOV1 channel.\n"
 					"Args:\n"
-					"  `station_name`: Search keyword (station name, country, or genre)",
-					
+					"  `station_name`: The name of the radio station to play (e.g., 'VOV1', 'BBC', 'NPR').\n"
+					"Return:\n"
+					"  Playback status information. Starts playing the radio station immediately.",
 					PropertyList({
-						Property("station_name", kPropertyTypeString)
+						Property("station_name", kPropertyTypeString) // Station name (required)
 					}),
 					[radio](const PropertyList &properties) -> ReturnValue {
-						auto query = properties["station_name"].value<std::string>();					
-						auto esp_radio = static_cast<Esp32Radio*>(radio);
-						if (!esp_radio) {
-							return "{\"success\": false, \"message\": \"Radio internal error: Invalid instance.\"}";
-						}
+						auto station_name = properties["station_name"].value<std::string>();
 
-						auto stations = esp_radio->SearchStations(query);
-
-						if (stations.empty()) {
-							return "{\"success\": false, \"message\": \"Không tìm thấy đài nào cho '" + query + "'. Thử từ khóa chung hơn hoặc kiểm tra chính tả nhé.\"}";
+						if (!radio->PlayStation(station_name))
+						{
+							return "{\"success\": false, \"message\": \"Failed to find or play radio station: " + station_name + "\"}";
 						}
-
-						// Trường hợp 1: Chỉ tìm thấy 1 đài duy nhất -> Phát luôn
-						if (stations.size() == 1) {
-							radio->PlayUrl(stations[0].url, stations[0].name);
-							return "{\"success\": true, \"message\": \"Đang phát: " + stations[0].name + "\"}";
-						}
-
-						// Trường hợp 2: Tìm thấy nhiều đài, nhưng có 1 đài trùng tên chính xác -> Phát luôn
-						for (const auto& s : stations) {
-							if (strcasecmp(s.name.c_str(), query.c_str()) == 0) {
-								radio->PlayUrl(s.url, s.name);
-								return "{\"success\": true, \"message\": \"Tìm thấy chính xác. Đang phát: " + s.name + "\"}";
-							}
-						}
-
-						// Trường hợp 3: Tìm thấy nhiều đài -> Trả về danh sách để hỏi người dùng
-						std::string result_json = "{\"success\": true, \"message\": \"Tìm thấy nhiều đài. Hãy đọc danh sách này và hỏi người dùng chọn:\", \"stations\": [";
-						
-						for (size_t i = 0; i < stations.size() && i < 10; ++i) {
-							result_json += "{\"name\": \"" + stations[i].name + "\", \"url\": \"" + stations[i].url + "\"}";
-							if (i < stations.size() - 1 && i < 9) result_json += ", ";
-						}
-						result_json += "]}";
-						
-						return result_json;
+						return "{\"success\": true, \"message\": \"Radio station " + station_name + " started playing\"}";
 					});
-			
+
 			AddTool("self.radio.play_url",
 					"Play a radio stream from a custom URL. Use this tool when user provides a specific radio stream URL.\n"
 					"Args:\n"
@@ -1139,7 +1094,7 @@ void McpServer::AddCommonTools() {
 					});
 
 			AddTool("self.radio.get_stations",
-					"Get the list of PRESET (hardcoded) radio stations stored on the device.\n"
+					"Get the list of available radio stations.\n"
 					"Return:\n"
 					"  JSON array of available radio stations.",
 					PropertyList(),
